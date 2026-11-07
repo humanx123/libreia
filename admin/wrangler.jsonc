@@ -1,0 +1,23 @@
+{
+  // Panel de administración de LibreIA: controla el Worker principal (libreia-api).
+  "name": "libreia-admin",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-01",
+  "account_id": "27098453904084d0166e9b9f4980bba7",
+  "workers_dev": true,
+  // Mismo KV que el principal: aquí se escriben catálogo, ajustes y claves cifradas.
+  "kv_namespaces": [{ "binding": "CONFIG", "id": "4184158a8d7a41ffa5f130096fdf08b5" }],
+  // Conexión privada al Worker principal (no pasa por su URL pública).
+  "services": [{ "binding": "MOTOR", "service": "libreia-api" }],
+  // Reutiliza el limitador del principal para frenar intentos de login.
+  "durable_objects": { "bindings": [
+    { "name": "LIMITADOR", "class_name": "Limitador", "script_name": "libreia-api" },
+    // Estadísticas anónimas (solo lectura de agregados desde el panel).
+    { "name": "ESTADISTICAS", "class_name": "Estadisticas", "script_name": "libreia-api" },
+    // Moderación de propuestas y número de cuentas (nunca datos de las cuentas).
+    { "name": "COMUNIDAD", "class_name": "Comunidad", "script_name": "libreia-api" }
+  ] },
+  // Secretos (wrangler secret bulk): MASTER_KEY, INTERNAL_TOKEN, SESSION_SECRET,
+  // ADMIN_USER, ADMIN_PASS_HASH, ADMIN_PASS_SALT.
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,36 @@
+# Dependencias y compilados
+node_modules/
+dist/
+.gradle/
+.android-sdk/
+.wrangler/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/local.properties
+*.apk
+*.aab
+
+# Secretos (nunca al repositorio)
+.env
+.env.*
+.dev.vars
+*.jks
+*.keystore
+claves.env
+
+# Arquitectura antigua (servidor local + túnel), ya no se usa
+backend/
+deploy/
+functions/
+models/
+scripts/
+docs/
+README-local-backend.md
+libreia-chat-assets.tar.gz
+.github/
+__pycache__/

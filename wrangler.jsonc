@@ -1,0 +1,34 @@
+{
+  "name": "libreia-api",
+  "main": "nube/src/index.js",
+  "compatibility_date": "2026-11-01",
+  "build": { "command": "echo 'no build step'" },
+  "assets": { "directory": "./dist", "binding": "ASSETS" },
+  "account_id": "27098453904084d0166e9b9f4980bba7",
+  "kv_namespaces": [
+    { "binding": "CONFIG", "id": "4184158a8d7a41ffa5f130096fdf08b5" },
+    { "binding": "SESSIONS", "id": "1028b32570b848998ddcfe3a94c20cf0" }
+  ],
+  // Límite por IP para /v1/chat/completions: un Durable Object por IP (contador en memoria).
+  // El limitador nativo ("ratelimits") se probó y no aplicaba el límite.
+  "durable_objects": { "bindings": [
+    { "name": "LIMITADOR", "class_name": "Limitador" },
+    // Estadísticas anónimas agregadas (SQLite en el Durable Object, plan gratuito).
+    { "name": "ESTADISTICAS", "class_name": "Estadisticas" },
+    // Cuentas (solo huellas cifradas) y propuestas/votos de la comunidad.
+    { "name": "COMUNIDAD", "class_name": "Comunidad" }
+  ] },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Limitador"] },
+    { "tag": "v2", "new_sqlite_classes": ["Estadisticas"] },
+    { "tag": "v3", "new_sqlite_classes": ["Comunidad"] }
+  ],
+  "vars": {
+    "REPO": "https://github.com/humanx123/libreia",
+    // Token público que va dentro del APK: solo filtra tráfico casual.
+    "APP_TOKEN": "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c"
+    // Las claves de los proveedores van como secretos: KEY_<PLATAFORMA> (wrangler secret bulk).
+  },
+  // Sin registros de peticiones en Cloudflare: LibreIA promete no guardar datos de uso individuales.
+  "observability": { "enabled": false }
+}

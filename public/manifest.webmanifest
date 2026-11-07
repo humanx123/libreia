@@ -1,0 +1,9 @@
+{
+  "name": "LibreIA Chat",
+  "short_name": "LibreIA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "description": "Asistente local privado con Ollama, memoria, código e imágenes"
+}

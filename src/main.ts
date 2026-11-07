@@ -1,0 +1,878 @@
+// LibreIA Chat — APK (Capacitor) y web.
+import "./style.css";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE } from "./api";
+import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING } from "./contenido";
+
+type Role = "user" | "assistant";
+type Source = { n: number; titulo: string; url: string; dominio: string };
+type Meta = { modo: string; proveedor?: string; modelo?: string };
+type Message = { role: Role; content: string; error?: boolean; fuentes?: Source[]; meta?: Meta };
+type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
+type View = "chat" | "about" | "community";
+
+const MODES = [
+  { id: "neutral", label: "Neutral" },
+  { id: "libre", label: "Libre" },
+  { id: "tecnico", label: "Técnico" },
+  { id: "fusion", label: "Fusión" },
+];
+
+const esc = (v: unknown) =>
+  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
+const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+// Old settings that users must no longer see or change.
+["libreia.backend", "libreia.backendToken"].forEach((k) => localStorage.removeItem(k));
+
+// ---------------------------------------------------------------- state
+let chats: ChatSession[] = [];
+let chatId = "";
+let messages: Message[] = [];
+let model = localStorage.getItem("libreia.model") || "neutral";
+if (!MODES.some((m) => m.id === model)) model = "neutral";
+let sending = false;
+let pendingChatId: string | null = null;
+let view: View = "chat";
+
+// Chats are stored per account on this device (shared devices keep them apart).
+const chatsKey = () => `libreia.chats.${session.ns}`;
+function loadChats() {
+  try {
+    chats = JSON.parse(localStorage.getItem(chatsKey()) || "[]");
+  } catch {
+    chats = [];
+  }
+  // Chats from before accounts existed go to the first account that signs in on this device.
+  const legacy = localStorage.getItem("libreia.chats");
+  if (legacy) {
+    try {
+      const old: ChatSession[] = JSON.parse(legacy);
+      chats = [...old.filter((o) => o.messages?.length && !chats.some((c) => c.id === o.id)), ...chats];
+    } catch {
+      /* ignore broken legacy data */
+    }
+    localStorage.removeItem("libreia.chats");
+  }
+  chatId = localStorage.getItem(`${chatsKey()}.active`) || "";
+  if (!chats.some((c) => c.id === chatId)) newChat(false);
+  messages = chats.find((c) => c.id === chatId)!.messages;
+  saveChats();
+}
+function saveChats() {
+  if (!session.ns) return;
+  localStorage.setItem(chatsKey(), JSON.stringify(chats));
+  localStorage.setItem(`${chatsKey()}.active`, chatId);
+}
+function newChat(render = true) {
+  const empty = chats.find((c) => !c.messages.length);
+  if (empty) chatId = empty.id;
+  else {
+    chatId = makeId();
+    chats.unshift({ id: chatId, title: "Nuevo chat", updatedAt: Date.now(), messages: [] });
+  }
+  messages = chats.find((c) => c.id === chatId)!.messages;
+  if (render) {
+    saveChats();
+    renderChatList();
+    renderMessages();
+    showView("chat");
+    closeSidebarOnMobile();
+    $("prompt").focus();
+  }
+}
+
+// ---------------------------------------------------------------- markdown
+marked.setOptions({ gfm: true, breaks: true });
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A") {
+    const href = node.getAttribute("href") || "";
+    if (!/^https?:\/\//i.test(href)) node.removeAttribute("href");
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer nofollow");
+    if (/^\[\d+\]$/.test(node.textContent || "")) node.setAttribute("class", "cita");
+  }
+});
+function renderMarkdown(text: string, fuentes?: Source[]): string {
+  // Some models cite as 【1】 or 【1†L3-L5】: normalise to [1].
+  let src = text.replace(/【(\d{1,2})(?:†[^】]*)?】/g, "[$1]");
+  if (fuentes?.length) {
+    const byN = new Map(fuentes.map((f) => [f.n, f]));
+    src = src.replace(/\[(\d{1,2})\](?!\()/g, (m, n) => {
+      const f = byN.get(Number(n));
+      return f ? `[\\[${n}\\]](${safeUrl(f.url).replace(/\)/g, "%29")})` : m;
+    });
+  }
+  return DOMPurify.sanitize(marked.parse(src, { async: false }) as string);
+}
+function renderSources(fuentes?: Source[]): string {
+  if (!fuentes?.length) return "";
+  return `<div class="sources"><div class="sources-title">Fuentes consultadas</div><ol>${fuentes
+    .map((f) => `<li value="${f.n}"><a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(f.titulo)}</a><span>${esc(f.dominio)}</span></li>`)
+    .join("")}</ol></div>`;
+}
+const modeLabel = (id: string) => MODES.find((m) => m.id === id)?.label || id;
+
+// ---------------------------------------------------------------- layout
+document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
+<section id="authView" class="auth-view hidden">
+  <div class="auth-card">
+    <div class="auth-brand"><img src="/libreia-logo.png" alt=""><div><h1>LibreIA</h1><p>IA libre, neutral y de la comunidad</p></div></div>
+    <div class="auth-tabs" role="tablist">
+      <button type="button" data-auth-tab="registro" class="active">Crear cuenta</button>
+      <button type="button" data-auth-tab="entrar">Entrar</button>
+    </div>
+    <form id="authForm" class="auth-form" autocomplete="on">
+      <label>Correo (solo como nombre de usuario)<input id="authEmail" type="email" autocomplete="username" required maxlength="200"></label>
+      <label>Contraseña<input id="authPass" type="password" autocomplete="new-password" required minlength="10" maxlength="200"></label>
+      <label id="authPass2Row">Repite la contraseña<input id="authPass2" type="password" autocomplete="new-password" minlength="10" maxlength="200"></label>
+      <div id="authWarn">${RECOVERY_WARNING}
+        <label class="check-row"><input id="authAck" type="checkbox"> Guardé mi contraseña en un lugar seguro y entiendo que no se puede recuperar.</label>
+      </div>
+      <button id="authSubmit" class="primary big" type="submit">Crear cuenta</button>
+      <p id="authError" class="error-text" role="alert"></p>
+    </form>
+    <details class="privacy-details" open>
+      <summary>🔒 Qué guardamos (y qué no)</summary>
+      ${PRIVACY_POINTS}
+    </details>
+    <button type="button" class="link-btn" data-go="about">¿Qué es LibreIA? Leer el manifiesto</button>
+  </div>
+</section>
+
+<main id="shell" class="app-shell hidden">
+  <div id="backdrop" class="backdrop"></div>
+  <aside class="sidebar" id="sidebar" aria-label="Menú">
+    <div class="sidebar-head">
+      <div class="brand"><img class="brand-logo" src="/libreia-logo.png" alt=""><strong>LIBREIA</strong></div>
+      <button id="hideSidebar" class="hide-btn" type="button" title="Ocultar el menú">⟨ Ocultar</button>
+    </div>
+    <button id="newChat" class="new-chat" type="button">＋ Nuevo chat</button>
+    <div class="side-label">Tus chats · solo en este dispositivo</div>
+    <div id="chatList" class="chat-list"></div>
+    <nav class="side-links">
+      <button type="button" data-go="about">❓ ¿Qué es LibreIA?</button>
+      <button type="button" data-go="community">🗳 Comunidad: propón y vota</button>
+      <button type="button" data-open-support>♥ Apoyar</button>
+      <button type="button" data-open-settings>⚙ Configuración y mis datos</button>
+    </nav>
+    <div class="sidebar-foot">
+      <span id="connectionDot" class="dot offline"></span>
+      <span id="connectionStatus">Conectando…</span>
+    </div>
+  </aside>
+
+  <section class="workspace">
+    <header class="topbar">
+      <button id="toggleSidebar" class="menu-btn" type="button" aria-controls="sidebar" title="Mostrar u ocultar el menú">☰ <span>Menú</span></button>
+      <h1 id="viewTitle">LibreIA</h1>
+      <select id="modelPicker" class="model-picker" title="Modo de respuesta">${MODES.map((m) => `<option value="${m.id}">${m.label}</option>`).join("")}</select>
+      <button class="icon-btn" type="button" data-open-support title="Apoyar LibreIA">♥</button>
+      <button class="icon-btn" type="button" data-open-settings title="Configuración">⚙</button>
+    </header>
+
+    <div id="chatView" class="chat-view">
+      <div id="messages" class="messages"></div>
+      <form id="composer" class="composer">
+        <textarea id="prompt" placeholder="Escribe tu pregunta…" rows="1"></textarea>
+        <button id="send" class="send-btn" type="submit" title="Enviar">➤</button>
+      </form>
+    </div>
+    <div id="aboutView" class="page hidden"></div>
+    <div id="communityView" class="page hidden"></div>
+  </section>
+</main>
+
+<dialog id="settingsDialog">
+  <div class="dialog-card">
+    <div class="dialog-title"><h2>Configuración y mis datos</h2><button class="icon-btn" type="button" data-close-dialog>✕</button></div>
+
+    <h3>Preferencias</h3>
+    <label class="check-row"><input id="webInput" type="checkbox"> Búsqueda web con fuentes reales</label>
+    <label class="check-row"><input id="statsInput" type="checkbox"> Contar mi uso de forma anónima (solo números, nunca contenido)</label>
+
+    <h3>Mis chats</h3>
+    <p class="muted">Tus chats solo existen en este dispositivo. Haz copias tú mismo/a: nadie más las tiene.</p>
+    <div class="btn-row">
+      <button type="button" id="exportJson">⬇ Exportar (JSON)</button>
+      <button type="button" id="exportMd">⬇ Exportar (Markdown)</button>
+      <button type="button" id="importBtn">⬆ Importar</button>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </div>
+    <button type="button" id="wipeChats" class="danger-btn">Borrar todos mis chats de este dispositivo</button>
+
+    <h3>Mi cuenta</h3>
+    <p class="muted">Sesión: <b id="accountEmail"></b> (el correo solo se guarda en este dispositivo).</p>
+    <button type="button" id="logoutBtn">Cerrar sesión</button>
+    <details>
+      <summary>Cambiar contraseña</summary>
+      <form id="passForm" class="stack">
+        <input id="passOld" type="password" placeholder="Contraseña actual" autocomplete="current-password" required>
+        <input id="passNew" type="password" placeholder="Nueva contraseña (mín. 10)" autocomplete="new-password" minlength="10" required>
+        <input id="passNew2" type="password" placeholder="Repite la nueva" autocomplete="new-password" minlength="10" required>
+        <button class="primary" type="submit">Cambiar contraseña</button>
+      </form>
+    </details>
+    <details>
+      <summary class="danger-text">Borrar mi cuenta</summary>
+      <form id="deleteForm" class="stack">
+        <p class="muted">Se borra la huella de tu cuenta y tus votos. Tus propuestas quedan para la comunidad, sin autor. Tus chats siguen en este dispositivo hasta que los borres.</p>
+        <input id="deletePass" type="password" placeholder="Tu contraseña para confirmar" autocomplete="current-password" required>
+        <button class="danger-btn" type="submit">Borrar mi cuenta para siempre</button>
+      </form>
+    </details>
+    <p id="settingsStatus" class="status-text" role="status"></p>
+  </div>
+</dialog>
+
+<dialog id="supportDialog">
+  <div class="dialog-card">
+    <div class="dialog-title"><h2>♥ Apoyar LibreIA</h2><button class="icon-btn" type="button" data-close-dialog>✕</button></div>
+    <p class="muted">LibreIA es gratis y lo seguirá siendo. Una donación <b>voluntaria</b> ayuda a pagar el servidor y modelos mejores para todos. Envía cada moneda <b>solo por su propia red</b>.</p>
+    <div class="don">
+      <div class="don-card"><div class="don-head"><img src="/donar/usdc.svg" alt=""><b>USDC · red Arbitrum</b></div>
+        <img class="qr" src="/donar/qr-usdc.svg" alt="Código QR de la dirección USDC en Arbitrum">
+        <code class="dir" id="dirUsdc">0xAC43f9b0E7F0ae6386cfC8ef6BFf62CE9c3006A1</code>
+        <p class="muted don-note">Solo <b>USDC en Arbitrum</b>, mínimo <b>5 USDC</b>. No envíes por Ethereum, BNB ni otra red: se pierde.</p>
+        <div class="don-actions"><button type="button" data-copy="dirUsdc">Copiar</button><button type="button" class="primary" data-wallet="ethereum:0xaf88d065e77c8cC2239327C5EDb3A432268e5831@42161/transfer?address=0xAC43f9b0E7F0ae6386cfC8ef6BFf62CE9c3006A1">Abrir billetera</button></div></div>
+      <div class="don-card"><div class="don-head"><img src="/donar/bitcoin.svg" alt=""><b>Bitcoin (BTC)</b></div>
+        <img class="qr" src="/donar/qr-bitcoin.svg" alt="Código QR de la dirección Bitcoin">
+        <code class="dir" id="dirBtc">bc1qd9j45f4t0jwyhjhqh2kvz2cr7k8xye460rr2y7</code>
+        <div class="don-actions"><button type="button" data-copy="dirBtc">Copiar</button><button type="button" class="primary" data-wallet="bitcoin:bc1qd9j45f4t0jwyhjhqh2kvz2cr7k8xye460rr2y7">Abrir billetera</button></div></div>
+      <div class="don-card"><div class="don-head"><img src="/donar/monero.svg" alt=""><b>Monero (XMR)</b></div>
+        <img class="qr" src="/donar/qr-monero.svg" alt="Código QR de la dirección Monero">
+        <code class="dir" id="dirXmr">447gTj6Hg6gaAEAUmjqfhqDZr1PziUTvbT4LYLpmLVnTNVFK6cqeqPfh6P4neMKLWX5jDXAr94fWHacJwDvjmCzBBH8wPBt</code>
+        <div class="don-actions"><button type="button" data-copy="dirXmr">Copiar</button><button type="button" class="primary" data-wallet="monero:447gTj6Hg6gaAEAUmjqfhqDZr1PziUTvbT4LYLpmLVnTNVFK6cqeqPfh6P4neMKLWX5jDXAr94fWHacJwDvjmCzBBH8wPBt">Abrir billetera</button></div></div>
+    </div>
+    <div class="don-other">
+      <b>¿Prefieres donar por otro medio?</b>
+      <p>Escríbenos a <a href="mailto:libreia@proton.me?subject=Donaci%C3%B3n%20a%20LibreIA">libreia@proton.me</a> y vemos juntos la mejor forma.</p>
+    </div>
+    <p id="donStatus" class="status-text" role="status"></p>
+    <p class="muted don-thanks">¡Gracias! 🙏<br><i>Hecho xhumanx + IA</i></p>
+  </div>
+</dialog>`;
+
+const messagesEl = $<HTMLDivElement>("messages");
+const shell = $("shell");
+const settingsDialog = $<HTMLDialogElement>("settingsDialog");
+const supportDialog = $<HTMLDialogElement>("supportDialog");
+
+// ---------------------------------------------------------------- sidebar (explicit show / hide)
+const isDesktop = () => window.matchMedia("(min-width: 800px)").matches;
+function setSidebar(open: boolean) {
+  if (isDesktop()) {
+    shell.classList.toggle("collapsed", !open);
+    localStorage.setItem("libreia.menuOculto", open ? "no" : "si");
+  } else {
+    shell.classList.toggle("sidebar-open", open);
+  }
+  const label = $("toggleSidebar").querySelector("span")!;
+  label.textContent = open && !isDesktop() ? "Cerrar" : "Menú";
+}
+const sidebarIsOpen = () => (isDesktop() ? !shell.classList.contains("collapsed") : shell.classList.contains("sidebar-open"));
+function closeSidebarOnMobile() {
+  if (!isDesktop()) setSidebar(false);
+}
+$("toggleSidebar").addEventListener("click", () => setSidebar(!sidebarIsOpen()));
+$("hideSidebar").addEventListener("click", () => setSidebar(false));
+$("backdrop").addEventListener("click", () => setSidebar(false));
+if (localStorage.getItem("libreia.menuOculto") === "si") shell.classList.add("collapsed");
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !isDesktop() && sidebarIsOpen()) setSidebar(false);
+});
+
+// ---------------------------------------------------------------- views
+function showView(v: View) {
+  view = v;
+  const loggedIn = !!session.token;
+  // The "about" page is also reachable before signing in.
+  if (!loggedIn && v !== "about") {
+    $("authView").classList.remove("hidden");
+    shell.classList.add("hidden");
+    return;
+  }
+  $("authView").classList.add("hidden");
+  shell.classList.remove("hidden");
+  $("chatView").classList.toggle("hidden", v !== "chat");
+  $("aboutView").classList.toggle("hidden", v !== "about");
+  $("communityView").classList.toggle("hidden", v !== "community");
+  $("modelPicker").classList.toggle("hidden", v !== "chat");
+  $("viewTitle").textContent = v === "about" ? "¿Qué es LibreIA?" : v === "community" ? "Comunidad" : "LibreIA";
+  shell.classList.toggle("no-session", !loggedIn);
+  if (v === "about") renderAbout();
+  if (v === "community") renderCommunity();
+  closeSidebarOnMobile();
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  // In the APK, external links (repo, email) go to the system browser / mail app.
+  const ext = t.closest<HTMLAnchorElement>("a[href^='mailto:'], a[data-external]");
+  if (ext && IS_NATIVE) {
+    e.preventDefault();
+    window.location.href = ext.href;
+    return;
+  }
+  const go = t.closest<HTMLElement>("[data-go]");
+  if (go) {
+    showView(go.dataset.go as View);
+    return;
+  }
+  if (t.closest("[data-back]")) {
+    showView("chat");
+    return;
+  }
+  if (t.closest("[data-open-support]")) {
+    supportDialog.showModal();
+    sendEvent("donar_abierto");
+    return;
+  }
+  if (t.closest("[data-open-settings]")) {
+    openSettings();
+    return;
+  }
+  if (t.closest("[data-close-dialog]")) {
+    t.closest("dialog")?.close();
+    return;
+  }
+  if (t.closest("[data-share]")) {
+    share();
+  }
+});
+[settingsDialog, supportDialog].forEach((d) => d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
+
+async function share() {
+  const url = "https://libre-ia.pages.dev";
+  const text = "LibreIA: inteligencia artificial libre, neutral y de la comunidad. Gratis y sin guardar tus datos.";
+  try {
+    if (navigator.share) await navigator.share({ title: "LibreIA", text, url });
+    else {
+      await copyText(`${text} ${url}`);
+      alert("Enlace copiado: " + url);
+    }
+  } catch {
+    /* user cancelled */
+  }
+}
+
+// ---------------------------------------------------------------- auth
+let authMode: "registro" | "entrar" = "registro";
+function setAuthMode(m: "registro" | "entrar") {
+  authMode = m;
+  document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((b) => b.classList.toggle("active", b.dataset.authTab === m));
+  $("authPass2Row").classList.toggle("hidden", m !== "registro");
+  $("authWarn").classList.toggle("hidden", m !== "registro");
+  $("authSubmit").textContent = m === "registro" ? "Crear cuenta" : "Entrar";
+  $<HTMLInputElement>("authPass").autocomplete = m === "registro" ? "new-password" : "current-password";
+  $("authError").textContent = "";
+}
+document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((b) => b.addEventListener("click", () => setAuthMode(b.dataset.authTab as any)));
+
+$("authForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = normalizeEmail($<HTMLInputElement>("authEmail").value);
+  const pass = $<HTMLInputElement>("authPass").value;
+  const err = $("authError");
+  err.textContent = "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return void (err.textContent = "Escribe un correo válido (solo se usa como nombre de usuario).");
+  if (pass.length < 10) return void (err.textContent = "La contraseña debe tener al menos 10 caracteres.");
+  if (authMode === "registro") {
+    if (pass !== $<HTMLInputElement>("authPass2").value) return void (err.textContent = "Las contraseñas no coinciden.");
+    if (!$<HTMLInputElement>("authAck").checked) return void (err.textContent = "Confirma que guardaste tu contraseña: no se puede recuperar.");
+  }
+  const btn = $<HTMLButtonElement>("authSubmit");
+  btn.disabled = true;
+  btn.textContent = "Protegiendo tus datos en este dispositivo…";
+  try {
+    const cred = await deriveCredentials(email, pass);
+    const r = await api<{ sesion: string }>(authMode === "registro" ? "/cuenta/registro" : "/cuenta/entrar", { body: cred, auth: "app", timeoutMs: 20000 });
+    session.save(r.sesion, email, cred.correoHash.slice(0, 16));
+    $<HTMLInputElement>("authPass").value = "";
+    $<HTMLInputElement>("authPass2").value = "";
+    startApp();
+  } catch (ex) {
+    err.textContent = (ex as Error).message;
+  } finally {
+    btn.disabled = false;
+    setAuthMode(authMode);
+  }
+});
+
+function logout() {
+  session.clear();
+  chats = [];
+  messages = [];
+  settingsDialog.close();
+  setAuthMode("entrar");
+  showView("chat");
+}
+
+// ---------------------------------------------------------------- chat rendering
+function renderMessages() {
+  if (!messages.length) {
+    messagesEl.innerHTML = `<div class="welcome"><img class="welcome-mark" src="/libreia-logo.png" alt=""><h2>¿En qué te ayudo?</h2>
+      <p>Pregunta lo que quieras. LibreIA busca en la web y cita sus fuentes.</p>
+      <div class="suggestions">
+        <button type="button" data-suggest="Explícame las distintas posturas sobre la renta básica universal">Posturas sobre la renta básica</button>
+        <button type="button" data-suggest="¿Qué noticias importantes hay hoy sobre inteligencia artificial?">Noticias de IA de hoy</button>
+        <button type="button" data-suggest="Escribe una función en Python que valide un correo electrónico">Código en Python</button>
+      </div></div>`;
+    return;
+  }
+  messagesEl.innerHTML =
+    messages
+      .map((m) => {
+        const body =
+          m.role === "user" || m.error
+            ? esc(m.content).replace(/\n/g, "<br>")
+            : renderMarkdown(m.content, m.fuentes) + renderSources(m.fuentes);
+        const meta = m.meta && m.role === "assistant" && !m.error
+          ? `<div class="msg-meta">${esc(modeLabel(m.meta.modo))}${m.meta.proveedor ? ` · respondió ${esc(m.meta.proveedor)}${m.meta.modelo ? ` / ${esc(m.meta.modelo)}` : ""}` : ""}</div>`
+          : "";
+        return `<div class="message ${m.role}${m.error ? " error" : ""}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${meta}</div></div>`;
+      })
+      .join("") +
+    (pendingChatId === chatId ? `<div class="thinking"><i></i>${prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}</div>` : "");
+  messagesEl.querySelectorAll(".message.assistant pre").forEach((pre) => {
+    const b = document.createElement("button");
+    b.className = "copy-code";
+    b.type = "button";
+    b.textContent = "Copiar";
+    pre.appendChild(b);
+  });
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function renderChatList() {
+  $("chatList").innerHTML =
+    [...chats]
+      .filter((c) => c.messages.length || c.id === chatId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map(
+        (c) => `<div class="chat-item ${c.id === chatId ? "active" : ""}">
+          <button class="chat-open" type="button" data-chat="${esc(c.id)}"><span>${esc(c.title || "Nuevo chat")}</span><small>${new Date(c.updatedAt).toLocaleDateString()}</small></button>
+          <button class="chat-delete" type="button" data-delete-chat="${esc(c.id)}" title="Borrar este chat">🗑</button>
+        </div>`,
+      )
+      .join("") || `<p class="muted small">Sin chats todavía.</p>`;
+}
+$("chatList").addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  const del = t.closest<HTMLElement>("[data-delete-chat]");
+  if (del) {
+    if (!confirm("¿Borrar este chat? No se puede deshacer.")) return;
+    const id = del.dataset.deleteChat!;
+    chats = chats.filter((c) => c.id !== id);
+    if (id === chatId) {
+      chatId = "";
+      newChat(false);
+    }
+    saveChats();
+    renderChatList();
+    renderMessages();
+    return;
+  }
+  const open = t.closest<HTMLElement>("[data-chat]");
+  if (open) {
+    chatId = open.dataset.chat!;
+    messages = chats.find((c) => c.id === chatId)!.messages;
+    saveChats();
+    renderChatList();
+    renderMessages();
+    showView("chat");
+  }
+});
+$("newChat").addEventListener("click", () => newChat());
+
+messagesEl.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  const sug = t.closest<HTMLElement>("[data-suggest]");
+  if (sug) {
+    $<HTMLTextAreaElement>("prompt").value = sug.dataset.suggest!;
+    $<HTMLFormElement>("composer").requestSubmit();
+    return;
+  }
+  const copyBtn = t.closest<HTMLButtonElement>(".copy-code");
+  if (copyBtn) {
+    copyText(copyBtn.parentElement?.querySelector("code")?.textContent ?? "").then(
+      () => { copyBtn.textContent = "Copiado ✓"; setTimeout(() => (copyBtn.textContent = "Copiar"), 1500); },
+      () => { copyBtn.textContent = "No se pudo copiar"; },
+    );
+    return;
+  }
+  const link = t.closest<HTMLAnchorElement>("a[href]");
+  if (link && IS_NATIVE && /^(https?|mailto):/i.test(link.href)) {
+    // In the APK, navigating to an external URL makes Capacitor open the system browser.
+    e.preventDefault();
+    window.location.href = link.href;
+  }
+});
+
+// ---------------------------------------------------------------- sending
+async function sendMessage(prompt: string) {
+  if (!prompt.trim() || sending) return;
+  sending = true;
+  $("send").classList.add("busy");
+  const targetChatId = chatId;
+  const target = messages;
+  const chat = chats.find((c) => c.id === targetChatId)!;
+  target.push({ role: "user", content: prompt });
+  if (chat.title === "Nuevo chat") chat.title = prompt.slice(0, 40);
+  chat.updatedAt = Date.now();
+  pendingChatId = targetChatId;
+  saveChats();
+  renderMessages();
+  renderChatList();
+
+  const reply = (m: Message) => {
+    target.push(m);
+    const c = chats.find((x) => x.id === targetChatId);
+    if (!c) return; // deleted while waiting
+    c.updatedAt = Date.now();
+    saveChats();
+  };
+  const usedModel = model;
+  try {
+    const r = await api("/chat/completions", {
+      body: {
+        model: usedModel,
+        messages: target.filter((m) => !m.error).map(({ role, content }) => ({ role, content })),
+        stream: false,
+        max_tokens: 2000,
+        web: prefs.web,
+      },
+      timeoutMs: 100000,
+    });
+    const content = r?.choices?.[0]?.message?.content;
+    if (content) {
+      const cut = r.choices[0].finish_reason === "length";
+      reply({
+        role: "assistant",
+        content: cut ? `${content}\n\n⚠️ *(respuesta cortada por longitud)*` : content,
+        fuentes: Array.isArray(r?.libreia?.fuentes) ? r.libreia.fuentes : [],
+        meta: { modo: usedModel, proveedor: r?.libreia?.proveedor, modelo: r?.libreia?.modelo },
+      });
+    } else {
+      reply({ role: "assistant", content: "❌ Respuesta inesperada del servidor (sin texto).", error: true });
+    }
+  } catch (e) {
+    const err = e as ApiError;
+    reply({ role: "assistant", content: `❌ No se pudo obtener respuesta.\n\n${err.message}`, error: true });
+    if (err.status === 401 && /sesi[oó]n/i.test(err.message)) {
+      alert(err.message);
+      logout();
+    }
+  } finally {
+    sending = false;
+    pendingChatId = null;
+    $("send").classList.remove("busy");
+    if (session.token) {
+      renderMessages();
+      renderChatList();
+    }
+  }
+}
+$("composer").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const ta = $<HTMLTextAreaElement>("prompt");
+  const text = ta.value;
+  ta.value = "";
+  ta.style.height = "";
+  sendMessage(text);
+});
+$("prompt").addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Enter" && !e.shiftKey && isDesktop()) {
+    e.preventDefault();
+    $<HTMLFormElement>("composer").requestSubmit();
+  }
+});
+$("prompt").addEventListener("input", () => {
+  const ta = $<HTMLTextAreaElement>("prompt");
+  ta.style.height = "";
+  ta.style.height = Math.min(ta.scrollHeight, 150) + "px";
+});
+const picker = $<HTMLSelectElement>("modelPicker");
+picker.value = model;
+picker.addEventListener("change", () => {
+  model = picker.value;
+  localStorage.setItem("libreia.model", model);
+});
+
+// ---------------------------------------------------------------- about / transparency
+let aboutRendered = false;
+async function renderAbout() {
+  const el = $("aboutView");
+  if (!aboutRendered) {
+    el.innerHTML = ABOUT_HTML;
+    aboutRendered = true;
+  }
+  // Without a session, "back" returns to the sign-in screen.
+  el.querySelectorAll<HTMLElement>("[data-back]").forEach((b) => (b.textContent = session.token ? "← Volver al chat" : "← Volver a crear cuenta / entrar"));
+  el.scrollTop = 0;
+  const box = $("transparency");
+  try {
+    const t = await api("/transparencia", { auth: "app" });
+    const n = (v: any) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("es"));
+    box.innerHTML = [
+      ["Cuentas", n(t.cuentas)],
+      ["Activos (30 días)", n(t.activos30)],
+      ["Mensajes (30 días)", n(t.mensajes30)],
+      ["Mensajes en total", n(t.mensajesTotal)],
+      ["Proveedores de IA activos", esc((t.proveedores || []).length)],
+      ["BTC donado", t.donaciones?.btc ? esc(t.donaciones.btc.recibido) + " BTC" : "—"],
+      ["USDC donado", t.donaciones?.usdc ? esc(Number(t.donaciones.usdc.recibido).toFixed(2)) + " USDC" : "—"],
+    ]
+      .map(([k, v]) => `<div class="t-stat"><b>${v}</b><span>${esc(k)}</span></div>`)
+      .join("") + `<p class="muted small full">${esc(t.donaciones?.nota || "")} Proveedores: ${esc((t.proveedores || []).join(", "))}.</p>`;
+  } catch (e) {
+    box.innerHTML = `<p class="error-text">No se pudieron cargar las cifras: ${esc((e as Error).message)}</p>`;
+  }
+}
+
+// ---------------------------------------------------------------- community
+type Proposal = { id: number; titulo: string; texto: string; estado: string; creada: string; respuesta?: string; votos: number; mio: boolean; propia: boolean };
+const ESTADO_LABEL: Record<string, string> = { abierta: "Abierta", en_curso: "En curso", hecha: "Hecha ✓", descartada: "Descartada" };
+async function renderCommunity() {
+  const el = $("communityView");
+  el.innerHTML = `<div class="page-inner">
+    <button class="back-btn" data-back type="button">← Volver al chat</button>
+    <h2>Comunidad: decide el rumbo de LibreIA</h2>
+    <p class="muted">Propón mejoras y vota las que quieras ver. Una cuenta, un voto. Los votos se guardan con una huella anónima de tu cuenta: nadie puede saber qué votaste.</p>
+    <form id="proposalForm" class="card-form">
+      <input id="propTitle" maxlength="120" placeholder="Tu propuesta en una frase (ej.: añadir un modo para estudiantes)" required minlength="6">
+      <textarea id="propText" maxlength="1000" rows="3" placeholder="Explica por qué sería útil (opcional)"></textarea>
+      <button class="primary" type="submit">Proponer</button>
+      <p id="propStatus" class="status-text" role="status"></p>
+    </form>
+    <div id="proposalList" class="proposal-list"><p class="muted">Cargando propuestas…</p></div>
+  </div>`;
+  $("proposalForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const st = $("propStatus");
+    try {
+      await api("/propuestas", { body: { titulo: $<HTMLInputElement>("propTitle").value, texto: $<HTMLTextAreaElement>("propText").value } });
+      st.textContent = "✓ Propuesta publicada. ¡Gracias!";
+      $<HTMLInputElement>("propTitle").value = "";
+      $<HTMLTextAreaElement>("propText").value = "";
+      loadProposals();
+    } catch (ex) {
+      st.textContent = (ex as Error).message;
+    }
+  });
+  $("proposalList").addEventListener("click", async (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-vote]");
+    if (!b) return;
+    b.disabled = true;
+    try {
+      await api("/propuestas/votar", { body: { propuesta: Number(b.dataset.vote) } });
+      await loadProposals();
+    } catch (ex) {
+      alert((ex as Error).message);
+      b.disabled = false;
+    }
+  });
+  loadProposals();
+}
+async function loadProposals() {
+  const list = $("proposalList");
+  try {
+    const { propuestas } = await api<{ propuestas: Proposal[] }>("/propuestas");
+    list.innerHTML =
+      propuestas
+        .map(
+          (p) => `<article class="proposal ${esc(p.estado)}">
+            <button type="button" class="vote ${p.mio ? "voted" : ""}" data-vote="${p.id}" title="${p.mio ? "Quitar mi voto" : "Votar"}">▲<b>${p.votos}</b></button>
+            <div><h3>${esc(p.titulo)}</h3>${p.texto ? `<p>${esc(p.texto)}</p>` : ""}
+              <div class="proposal-meta"><span class="badge">${esc(ESTADO_LABEL[p.estado] || p.estado)}</span>${p.propia ? `<span class="badge">Tu propuesta</span>` : ""}<span>${esc(p.creada)}</span></div>
+              ${p.respuesta ? `<p class="answer"><b>Respuesta del proyecto:</b> ${esc(p.respuesta)}</p>` : ""}</div>
+          </article>`,
+        )
+        .join("") || `<p class="muted">Aún no hay propuestas. ¡Haz la primera!</p>`;
+  } catch (e) {
+    list.innerHTML = `<p class="error-text">${esc((e as Error).message)}</p>`;
+  }
+}
+
+// ---------------------------------------------------------------- settings & my data
+function openSettings() {
+  $<HTMLInputElement>("webInput").checked = prefs.web;
+  $<HTMLInputElement>("statsInput").checked = prefs.stats;
+  $("accountEmail").textContent = session.email || "—";
+  $("settingsStatus").textContent = "";
+  settingsDialog.showModal();
+}
+$("webInput").addEventListener("change", (e) => (prefs.web = (e.target as HTMLInputElement).checked));
+$("statsInput").addEventListener("change", (e) => (prefs.stats = (e.target as HTMLInputElement).checked));
+$("logoutBtn").addEventListener("click", () => {
+  if (confirm("¿Cerrar sesión? Tus chats se quedan guardados en este dispositivo.")) logout();
+});
+
+function download(name: string, content: string, type: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+$("exportJson").addEventListener("click", () => {
+  download(`libreia-chats-${stamp()}.json`, JSON.stringify({ app: "LibreIA", version: 1, exportado: new Date().toISOString(), chats }, null, 2), "application/json");
+  $("settingsStatus").textContent = "✓ Chats exportados. Guarda el archivo en un lugar seguro.";
+});
+$("exportMd").addEventListener("click", () => {
+  const md = chats
+    .filter((c) => c.messages.length)
+    .map((c) => `# ${c.title}\n\n` + c.messages.map((m) => `**${m.role === "user" ? "Tú" : "LibreIA"}:**\n\n${m.content}${m.fuentes?.length ? "\n\nFuentes:\n" + m.fuentes.map((f) => `${f.n}. ${f.titulo} — ${f.url}`).join("\n") : ""}`).join("\n\n---\n\n"))
+    .join("\n\n\n");
+  download(`libreia-chats-${stamp()}.md`, md, "text/markdown");
+  $("settingsStatus").textContent = "✓ Chats exportados en Markdown.";
+});
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async (e) => {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const incoming: ChatSession[] = (Array.isArray(data) ? data : data.chats || []).filter(
+      (c: any) => c && typeof c.id === "string" && Array.isArray(c.messages),
+    );
+    let added = 0;
+    for (const c of incoming) {
+      if (chats.some((x) => x.id === c.id)) continue;
+      chats.push({
+        id: c.id,
+        title: String(c.title || "Chat importado").slice(0, 80),
+        updatedAt: Number(c.updatedAt) || Date.now(),
+        messages: c.messages
+          .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+          .map((m: any) => ({ role: m.role, content: m.content, error: !!m.error, fuentes: Array.isArray(m.fuentes) ? m.fuentes : undefined, meta: m.meta })),
+      });
+      added++;
+    }
+    saveChats();
+    renderChatList();
+    $("settingsStatus").textContent = `✓ ${added} chat(s) importados${incoming.length - added ? ` (${incoming.length - added} ya existían)` : ""}.`;
+  } catch (ex) {
+    $("settingsStatus").textContent = "No se pudo importar: " + (ex as Error).message;
+  } finally {
+    (e.target as HTMLInputElement).value = "";
+  }
+});
+$("wipeChats").addEventListener("click", () => {
+  if (!confirm("¿Borrar TODOS tus chats de este dispositivo? No se puede deshacer (exporta antes si quieres conservarlos).")) return;
+  chats = [];
+  chatId = "";
+  newChat(false);
+  saveChats();
+  renderChatList();
+  renderMessages();
+  $("settingsStatus").textContent = "✓ Chats borrados de este dispositivo.";
+});
+
+$("passForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const st = $("settingsStatus");
+  const email = session.email;
+  const old = $<HTMLInputElement>("passOld").value;
+  const nw = $<HTMLInputElement>("passNew").value;
+  if (!email) return void (st.textContent = "Vuelve a entrar para cambiar la contraseña.");
+  if (nw.length < 10) return void (st.textContent = "La nueva contraseña debe tener al menos 10 caracteres.");
+  if (nw !== $<HTMLInputElement>("passNew2").value) return void (st.textContent = "Las contraseñas nuevas no coinciden.");
+  st.textContent = "Protegiendo tus datos en este dispositivo…";
+  try {
+    const a = await deriveCredentials(email, old);
+    const b = await deriveCredentials(email, nw);
+    await api("/cuenta/contrasena", { body: { correoHash: a.correoHash, claveActual: a.clave, claveNueva: b.clave }, timeoutMs: 20000 });
+    (e.target as HTMLFormElement).reset();
+    st.textContent = "✓ Contraseña cambiada. Guárdala bien: no se puede recuperar.";
+  } catch (ex) {
+    st.textContent = (ex as Error).message;
+  }
+});
+$("deleteForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const st = $("settingsStatus");
+  const email = session.email;
+  if (!email) return void (st.textContent = "Vuelve a entrar para borrar la cuenta.");
+  if (!confirm("¿Borrar tu cuenta para siempre? No se puede deshacer.")) return;
+  try {
+    const c = await deriveCredentials(email, $<HTMLInputElement>("deletePass").value);
+    await api("/cuenta/borrar", { body: c, timeoutMs: 20000 });
+    alert("Tu cuenta se borró. Tus chats siguen en este dispositivo hasta que los borres.");
+    logout();
+  } catch (ex) {
+    st.textContent = (ex as Error).message;
+  }
+});
+
+// ---------------------------------------------------------------- support dialog
+const COIN_OF: Record<string, string> = { dirUsdc: "usdc", dirBtc: "btc", dirXmr: "xmr", ethereum: "usdc", bitcoin: "btc", monero: "xmr" };
+supportDialog.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  const status = $("donStatus");
+  const copyBtn = t.closest<HTMLElement>("[data-copy]");
+  if (copyBtn) {
+    const text = $(copyBtn.dataset.copy!).textContent?.trim() || "";
+    if (COIN_OF[copyBtn.dataset.copy!]) sendEvent(`copiar:${COIN_OF[copyBtn.dataset.copy!]}`);
+    copyText(text).then(
+      () => (status.textContent = "Dirección copiada."),
+      () => (status.textContent = "No se pudo copiar: mantén pulsada la dirección para seleccionarla."),
+    );
+    return;
+  }
+  const w = t.closest<HTMLElement>("[data-wallet]");
+  if (w) {
+    status.textContent = "Abriendo billetera… Si no se abre ninguna, copia la dirección.";
+    const scheme = w.dataset.wallet!.split(":")[0];
+    if (COIN_OF[scheme]) sendEvent(`billetera:${COIN_OF[scheme]}`);
+    window.location.href = w.dataset.wallet!;
+  }
+});
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (!ok) throw new Error("copy failed");
+  }
+}
+
+// ---------------------------------------------------------------- connection status
+async function checkConnection() {
+  try {
+    await api("/models", { auth: "app" });
+    $("connectionStatus").textContent = "Conectado";
+    $("connectionDot").className = "dot online";
+  } catch (e) {
+    $("connectionStatus").textContent = "Sin conexión: " + (e as Error).message.slice(0, 60);
+    $("connectionDot").className = "dot offline";
+  }
+}
+
+// ---------------------------------------------------------------- start
+function startApp() {
+  loadChats();
+  renderChatList();
+  renderMessages();
+  if (isDesktop() && localStorage.getItem("libreia.menuOculto") !== "si") shell.classList.remove("collapsed");
+  showView("chat");
+  checkConnection();
+}
+
+sendEvent("app_abierta");
+setAuthMode(session.token ? "entrar" : "registro");
+if (session.token) startApp();
+else showView("chat");
