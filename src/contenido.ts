@@ -6,7 +6,7 @@ export const CONTACT_EMAIL = "libreia@proton.me";
 
 export const PRIVACY_POINTS = `
 <ul class="privacy-list">
-  <li><b>Tu correo y tu contraseña no salen de tu dispositivo.</b> Se transforman aquí en huellas (la contraseña, con 200 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado.</li>
+  <li><b>Tu correo y tu contraseña no salen de tu dispositivo.</b> Se transforman aquí en huellas (la contraseña, con 600 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado.</li>
   <li><b>Tus chats viven solo en este dispositivo.</b> No se guardan en ningún servidor. Puedes exportarlos o borrarlos en Configuración.</li>
   <li><b>No guardamos</b> tu IP, tu nombre ni lo que escribes. Solo contamos números agregados (cuántos usuarios y mensajes) y puedes desactivarlo.</li>
   <li><b>El correo es solo tu nombre de usuario:</b> no lo verificamos ni te escribiremos nunca.</li>

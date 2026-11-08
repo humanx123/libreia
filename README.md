@@ -26,7 +26,7 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
 | Dato | Qué pasa |
 |---|---|
 | Correo | Se transforma en el dispositivo con `SHA-256("libreia-correo:" + correo)` y nunca sale en claro. |
-| Contraseña | Se deriva en el dispositivo con `PBKDF2(200 000 iteraciones)` y nunca sale en claro. |
+| Contraseña | Se deriva en el dispositivo con PBKDF2-SHA256 de 600 000 iteraciones y nunca sale en claro. Las cuentas creadas antes de la 0.10 (200 000 iteraciones) se refuerzan solas al volver a entrar. |
 | Servidor | Solo guarda `HMAC(pepper, …)` de esos valores. Por eso **no hay recuperación de contraseña**. |
 | Chats | Viven solo en el dispositivo. Se pueden exportar (JSON o Markdown), importar y borrar. |
 | Uso | Solo hay contadores agregados (un id de instalación aleatorio, guardado como HMAC) y se pueden desactivar en la app. |
@@ -95,6 +95,8 @@ La APK se firma en modo *release* con la clave indicada en `android/keystore.pro
   - Modo prueba: por instalación y por red.
   - Tope diario por cuenta.
   - Registros e inicios de sesión: por red y por cuenta.
+- **Registro con captcha** (Cloudflare Turnstile, se puede desactivar desde el panel): el servidor valida cada token con Cloudflare y comprueba el host. Va antes del tope global diario, para que los bots no lo agoten.
+- **Contraseñas:** 600 000 rondas de PBKDF2 en el dispositivo y después HMAC con una clave secreta en el servidor.
   - Si el limitador falla, los límites sensibles deniegan en vez de dejar pasar.
 - **Respuestas de la IA:**
   - Se sanean con una lista estricta de etiquetas: sin formularios, estilos, ids ni atributos `data-`.
@@ -107,6 +109,7 @@ La APK se firma en modo *release* con la clave indicada en `android/keystore.pro
   - Los intentos de contraseña están limitados.
   - El registro de la cuenta en KV va firmado.
   - Cerrar sesión invalida todas las sesiones.
+  - Su cuenta, sus sesiones y su registro de acciones viven en un KV propio (`PANEL`), al que el Worker público no tiene acceso.
 
 Si encuentras un fallo de seguridad, escribe a **libreia@proton.me** antes de publicarlo.
 
@@ -126,8 +129,8 @@ Son voluntarias y pagan servidores y modelos mejores para todas las personas. La
 
 Toda la familia comparte la misma piel, un brutalismo de protesta: el sitio (`landing/`), la app web, la APK (`src/tema.css`) y el panel (`admin/src/ui.js`).
 
-- **Logo:** la palabra **LIBRE**IA en Anton, con «IA» en magenta `#ff2bd1`. No hay ilustración.
-- **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, magenta `#ff2bd1` (solo el logo), rojo `#ff4b2b` y ámbar `#e8c18b`.
+- **Logo:** la palabra **LIBRE**IA en Anton, con «IA» en cian `#53e8d4`. No hay ilustración.
+- **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, rojo `#ff4b2b` y ámbar `#e8c18b`.
 - **Tipografías:** Anton para los titulares, Space Mono para las etiquetas y Archivo para el texto. Son fuentes OFL servidas desde el propio sitio, sin Google Fonts.
 - **Forma:** esquinas rectas, bordes gruesos y sombras duras.
 

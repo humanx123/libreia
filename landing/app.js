@@ -54,18 +54,23 @@ fetch(API + "/transparencia")
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 $("demo").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const email = $("demoEmail").value.trim().toLowerCase();
-  const pass = $("demoPass").value;
+  // Igual que la app: Unicode normalizado (NFKC el correo, NFC la contraseña).
+  const email = $("demoEmail").value.normalize("NFKC").trim().toLowerCase();
+  const pass = $("demoPass").value.normalize("NFC");
   if (!email) { $("demoEmail").focus(); return; }
   if (!crypto?.subtle) { $("outEmail").textContent = "Tu navegador no permite WebCrypto en esta conexión."; return; }
   const enc = new TextEncoder();
   $("outPlain").textContent = email + (pass ? "  ·  " + "•".repeat(Math.min(pass.length, 24)) : "");
   $("outEmail").textContent = hex(await crypto.subtle.digest("SHA-256", enc.encode("libreia-correo:" + email)));
   if (pass) {
-    $("outPass").textContent = "calculando 200 000 rondas…";
-    const key = await crypto.subtle.importKey("raw", enc.encode(pass), "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("libreia-clave:" + email), iterations: 200000, hash: "SHA-256" }, key, 256);
-    $("outPass").textContent = hex(bits);
+    $("outPass").textContent = "calculando 600 000 rondas…";
+    // Igual que la app: 200 000 rondas y, encadenadas sobre ese resultado, otras 400 000.
+    const pbkdf2 = async (raw, salt, iterations) => {
+      const key = await crypto.subtle.importKey("raw", raw, "PBKDF2", false, ["deriveBits"]);
+      return crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode(salt), iterations, hash: "SHA-256" }, key, 256);
+    };
+    const v1 = await pbkdf2(enc.encode(pass), "libreia-clave:" + email, 200000);
+    $("outPass").textContent = hex(await pbkdf2(v1, "libreia-clave2:" + email, 400000));
   } else {
     $("outPass").textContent = "— (escribe una contraseña para verlo)";
   }

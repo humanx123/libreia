@@ -133,7 +133,7 @@
     <div class="wrap">
       <p class="label">04 / No nos creas: compruébalo</p>
       <h2 class="h2">Tu correo nunca<br><span class="hl-red">sale de tu mano.</span></h2>
-      <p class="lead">Al crear una cuenta, tu dispositivo transforma el correo y la contraseña en huellas (la contraseña, con 200 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado. Por eso <b>no podemos recuperar tu contraseña</b>: tampoco la conocemos. Pruébalo aquí: este cálculo ocurre en tu navegador y <b>esta página no envía nada</b>.</p>
+      <p class="lead">Al crear una cuenta, tu dispositivo transforma el correo y la contraseña en huellas (la contraseña, con 600 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado. Por eso <b>no podemos recuperar tu contraseña</b>: tampoco la conocemos. Pruébalo aquí: este cálculo ocurre en tu navegador y <b>esta página no envía nada</b>.</p>
       <form class="demo" id="demo" autocomplete="off">
         <label>Correo<input id="demoEmail" type="email" placeholder="tu@correo.com" spellcheck="false"></label>
         <label>Contraseña<input id="demoPass" type="password" placeholder="mínimo 10 caracteres"></label>
@@ -142,7 +142,7 @@
       <div class="demo-out" id="demoOut" aria-live="polite">
         <div><span>Lo que escribes</span><code id="outPlain">—</code></div>
         <div><span>Lo que sale del dispositivo · SHA-256</span><code id="outEmail">—</code></div>
-        <div><span>Contraseña derivada · PBKDF2 × 200 000</span><code id="outPass">—</code></div>
+        <div><span>Contraseña derivada · PBKDF2 × 600 000</span><code id="outPass">—</code></div>
         <div><span>Lo que guarda el servidor</span><code>HMAC(secreto, huella) → irreversible</code></div>
       </div>
       <ul class="privacy">
@@ -180,7 +180,7 @@
         <article class="dl-card dl-apk">
           <p class="tag">Android · APK</p>
           <h3>App para Android</h3>
-          <p>Versión <b>0.9.0</b> · ~6 MB · Android 6 o superior.</p>
+          <p>Versión <b>0.10.0</b> · ~6 MB · Android 6 o superior.</p>
           <a class="btn btn-cyan big" href="https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk" download>Descargar APK ↓</a>
           <ol class="steps">
             <li>Descarga el archivo.</li>

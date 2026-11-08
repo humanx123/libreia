@@ -15,7 +15,7 @@
 :root{
   --bg:#090b10;--panel:#11151e;--panel2:#181e29;--line:#2c3443;
   --ink:#efe8d8;--paper:#efe8d8;--muted:#9aa2b1;
-  --accent:#53e8d4;--cyan:#53e8d4;--magenta:#ff2bd1;--red:#ff4b2b;--amber:#e8c18b;--leaf:#1f4d43;
+  --accent:#53e8d4;--cyan:#53e8d4;--red:#ff4b2b;--amber:#e8c18b;--leaf:#1f4d43;
   --display:"Anton",Impact,"Arial Narrow Bold",sans-serif;
   --mono:"Space Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -54,7 +54,7 @@ button:disabled{opacity:.55;cursor:wait}
 /* ---------- barra superior ---------- */
 .topbar{background:var(--bg);border-bottom:3px solid var(--paper);backdrop-filter:none}
 .topbar h1{font:400 24px/1 var(--display);text-transform:uppercase;letter-spacing:.02em}
-.topbar h1 b{font-weight:400;color:var(--magenta)}
+.topbar h1 b{font-weight:400;color:var(--cyan)}
 .menu-btn{padding:8px 11px}
 .model-picker{flex:0 0 auto;width:auto;min-width:0;max-width:150px;border:2px solid var(--paper);background:var(--bg);color:var(--paper);font:700 11px var(--mono);text-transform:uppercase;padding:8px 6px}
 .model-picker option{background:var(--bg);color:var(--paper)}
@@ -63,7 +63,7 @@ button:disabled{opacity:.55;cursor:wait}
 .sidebar{background:#0b0d12;border-right:3px solid var(--paper)}
 .brand{letter-spacing:.02em}
 .brand strong{font:400 26px/1 var(--display)}
-.brand strong b,.auth-brand h1 b,.welcome-mark b,.hero-logo b{color:var(--magenta);font-weight:400}
+.brand strong b,.auth-brand h1 b,.welcome-mark b,.hero-logo b{color:var(--cyan);font-weight:400}
 .hide-btn{padding:6px 9px;font-size:11px;box-shadow:3px 3px 0 var(--paper)}
 .new-chat{text-align:center;padding:12px}
 .side-label{font:700 10px var(--mono);color:var(--cyan);letter-spacing:.1em}
@@ -225,3 +225,6 @@ dialog::backdrop{background:#000c;backdrop-filter:none}
 @media (prefers-reduced-motion:reduce){
   *{transition:none!important}
 }
+/* Captcha del registro (Turnstile): reserva su alto para que el formulario no salte al cargarlo */
+.captcha-box{min-height:65px;margin-top:12px}
+.captcha-box.hidden{display:none}

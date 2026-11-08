@@ -4,7 +4,7 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.9.0";
+export const APP_VERSION = "0.10.0";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";
@@ -76,7 +76,7 @@ function installId(): string {
 
 // ---------------------------------------------------------------- HTTP
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  constructor(message: string, public status: number, public code = "") {
     super(message);
   }
 }
@@ -123,7 +123,15 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       timeout,
     ]);
     const text = await res.text();
-    if (!res.ok) throw new ApiError(messageFrom(res.status, text), res.status);
+    if (!res.ok) {
+      let code = "";
+      try {
+        code = String(JSON.parse(text)?.codigo || "");
+      } catch {
+        /* plain text */
+      }
+      throw new ApiError(messageFrom(res.status, text), res.status, code);
+    }
     return JSON.parse(text) as T;
   } catch (e) {
     if (e instanceof ApiError) throw e;
@@ -150,13 +158,20 @@ export async function emailHash(email: string): Promise<string> {
 
 /**
  * Everything sensitive is transformed on this device:
- *   correoHash = SHA-256(email)            → the server never sees the email
- *   clave      = PBKDF2(password, 200k)    → the server never sees the password
+ *   correoHash    = SHA-256(email)                       → the server never sees the email
+ *   claveAnterior = PBKDF2(password, 200k)               → kdf 1 (accounts created before 0.10)
+ *   clave         = PBKDF2(claveAnterior, 400k)          → kdf 2: 600k rounds in total
+ * Chaining means kdf 1 comes for free, so an old account is upgraded on its next sign-in
+ * without asking anything; once upgraded, the server no longer accepts the kdf 1 value.
  */
 export async function deriveCredentials(email: string, password: string) {
   const e = normalizeEmail(email);
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(password.normalize("NFC")), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("libreia-clave:" + e), iterations: 200000, hash: "SHA-256" }, key, 256);
-  return { correoHash: await emailHash(e), clave: hex(bits) };
+  const pbkdf2 = async (raw: BufferSource, salt: string, iterations: number) => {
+    const key = await crypto.subtle.importKey("raw", raw, "PBKDF2", false, ["deriveBits"]);
+    return crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode(salt), iterations, hash: "SHA-256" }, key, 256);
+  };
+  const v1 = await pbkdf2(enc.encode(password.normalize("NFC")), "libreia-clave:" + e, 200000);
+  const v2 = await pbkdf2(v1, "libreia-clave2:" + e, 400000);
+  return { correoHash: await emailHash(e), kdf: 2, clave: hex(v2), claveAnterior: hex(v1) };
 }

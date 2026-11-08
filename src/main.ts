@@ -234,6 +234,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <label id="authPass2Row">Repite la contraseña<input id="authPass2" type="password" autocomplete="new-password" minlength="10" maxlength="200"></label>
       <div id="authWarn">${RECOVERY_WARNING}
         <label class="check-row"><input id="authAck" type="checkbox"> Guardé mi contraseña en un lugar seguro y entiendo que no se puede recuperar.</label>
+        <div id="authCaptcha" class="captcha-box hidden" aria-label="Verificación: no soy un robot"></div>
       </div>
       <button id="authSubmit" class="primary big" type="submit">Crear cuenta</button>
       <p id="authError" class="error-text" role="alert"></p>
@@ -498,6 +499,65 @@ function setAuthMode(m: "registro" | "entrar") {
   $("authSubmit").textContent = m === "registro" ? "Crear cuenta" : "Entrar";
   $<HTMLInputElement>("authPass").autocomplete = m === "registro" ? "new-password" : "current-password";
   $("authError").textContent = "";
+  if (m === "registro") void showCaptcha();
+}
+
+// Registration captcha (Cloudflare Turnstile). The site key comes from /transparencia; null = disabled.
+// The script is only loaded when someone opens "Crear cuenta", never for sign-in or chat.
+let captchaKey: string | null = null;
+let captchaToken = "";
+let captchaWidget: string | null = null;
+let turnstileLoad: Promise<void> | null = null;
+type Turnstile = {
+  render: (el: HTMLElement, o: Record<string, unknown>) => string;
+  reset: (id: string) => void;
+};
+const turnstile = () => (window as unknown as { turnstile?: Turnstile }).turnstile;
+function loadTurnstile(): Promise<void> {
+  turnstileLoad ??= new Promise<void>((resolve, reject) => {
+    const sc = document.createElement("script");
+    sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    sc.async = true;
+    sc.onload = () => resolve();
+    sc.onerror = () => {
+      turnstileLoad = null; // allow a retry
+      reject(new Error("No se pudo cargar la verificación «no soy un robot». Revisa tu conexión."));
+    };
+    document.head.appendChild(sc);
+  });
+  return turnstileLoad;
+}
+async function showCaptcha() {
+  const box = $("authCaptcha");
+  if (!captchaKey) return void box.classList.add("hidden");
+  box.classList.remove("hidden");
+  if (captchaWidget) return;
+  try {
+    await loadTurnstile();
+    const ts = turnstile();
+    if (!ts || captchaWidget) return;
+    captchaWidget = ts.render(box, {
+      sitekey: captchaKey,
+      theme: "dark",
+      language: "es",
+      callback: (t: string) => {
+        captchaToken = t;
+        $("authError").textContent = "";
+      },
+      "expired-callback": () => (captchaToken = ""),
+      "error-callback": () => {
+        captchaToken = "";
+        $("authError").textContent = "La verificación «no soy un robot» falló. Se reintentará sola; si sigue, recarga.";
+      },
+    });
+  } catch (ex) {
+    $("authError").textContent = (ex as Error).message;
+  }
+}
+/** A Turnstile token is single use: after every attempt a fresh one is needed. */
+function resetCaptcha() {
+  captchaToken = "";
+  if (captchaWidget) turnstile()?.reset(captchaWidget);
 }
 document.querySelectorAll<HTMLButtonElement>("[data-auth-tab]").forEach((b) => b.addEventListener("click", () => setAuthMode(b.dataset.authTab as any)));
 
@@ -513,12 +573,20 @@ $("authForm").addEventListener("submit", async (e) => {
     if (pass !== $<HTMLInputElement>("authPass2").value) return void (err.textContent = "Las contraseñas no coinciden.");
     if (!$<HTMLInputElement>("authAck").checked) return void (err.textContent = "Confirma que guardaste tu contraseña: no se puede recuperar.");
   }
+  if (authMode === "registro" && captchaKey && !captchaToken) {
+    void showCaptcha();
+    return void (err.textContent = "Completa la verificación «no soy un robot».");
+  }
   const btn = $<HTMLButtonElement>("authSubmit");
   btn.disabled = true;
   btn.textContent = "Protegiendo tus datos en este dispositivo…";
+  const registering = authMode === "registro";
   try {
     const cred = await deriveCredentials(email, pass);
-    const r = await api<{ sesion: string }>(authMode === "registro" ? "/cuenta/registro" : "/cuenta/entrar", { body: cred, auth: "app", timeoutMs: 20000 });
+    // Registering only needs the strong key; signing in also sends the old one so a pre-0.10
+    // account is upgraded on the spot (the server ignores it once the account is upgraded).
+    const body = registering ? { correoHash: cred.correoHash, kdf: cred.kdf, clave: cred.clave, captcha: captchaToken || undefined } : cred;
+    const r = await api<{ sesion: string }>(registering ? "/cuenta/registro" : "/cuenta/entrar", { body, auth: "app", timeoutMs: 20000 });
     const ns = cred.correoHash.slice(0, 16);
     if (session.guest) adoptGuestChats(ns);
     session.save(r.sesion, email, ns);
@@ -527,9 +595,14 @@ $("authForm").addEventListener("submit", async (e) => {
     startApp();
   } catch (ex) {
     err.textContent = (ex as Error).message;
+    // The server requires a captcha this client did not know about yet (e.g. just turned on).
+    if (ex instanceof ApiError && ex.code === "captcha" && !captchaKey) await loadTrialInfo();
   } finally {
     btn.disabled = false;
+    if (registering) resetCaptcha();
+    const msg = err.textContent;
     setAuthMode(authMode);
+    err.textContent = msg;
   }
 });
 
@@ -584,6 +657,9 @@ function applyGuestUi() {
 async function loadTrialInfo(): Promise<boolean> {
   try {
     const t = await api("/transparencia", { auth: "app" });
+    const key = t?.registro?.captcha;
+    captchaKey = typeof key === "string" && /^[\w-]{10,100}$/.test(key) ? key : null;
+    if (authMode === "registro" && !$("authView").classList.contains("hidden")) void showCaptcha();
     const p = t?.prueba;
     if (p && p.activa === false) {
       $("guestBox").classList.add("hidden");
@@ -993,7 +1069,10 @@ $("passForm").addEventListener("submit", async (e) => {
   try {
     const a = await deriveCredentials(email, old);
     const b = await deriveCredentials(email, nw);
-    const r = await api<{ sesion?: string }>("/cuenta/contrasena", { body: { correoHash: a.correoHash, claveActual: a.clave, claveNueva: b.clave }, timeoutMs: 20000 });
+    const r = await api<{ sesion?: string }>("/cuenta/contrasena", {
+      body: { correoHash: a.correoHash, kdf: 2, claveActual: a.clave, claveActualAnterior: a.claveAnterior, claveNueva: b.clave },
+      timeoutMs: 20000,
+    });
     // The server closes every other session; this device gets a fresh one.
     if (r.sesion && session.ns) session.save(r.sesion, email, session.ns);
     (e.target as HTMLFormElement).reset();

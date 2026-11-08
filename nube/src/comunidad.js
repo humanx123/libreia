@@ -3,7 +3,10 @@
 // Privacidad de las cuentas:
 //   · La app NUNCA envía el correo ni la contraseña en claro. Envía:
 //       correoHash = SHA-256("libreia-correo:" + correo)
-//       clave      = PBKDF2(contraseña, "libreia-clave:" + correo, 200 000 iteraciones)
+//       clave      = PBKDF2(contraseña, "libreia-clave:" + correo, 200 000 iteraciones)   (kdf 1)
+//       clave2     = PBKDF2(clave, "libreia-clave2:" + correo, 400 000 iteraciones)      (kdf 2: 600 000 en total)
+//     Las cuentas kdf 1 pasan solas a kdf 2 la próxima vez que entran con una app actual
+//     (la app manda las dos claves; la de kdf 1 solo se acepta mientras la cuenta siga en kdf 1).
 //   · Aquí solo se guarda HMAC(pepper, …) de esos valores: ni el correo ni la contraseña
 //     se pueden leer, tampoco con acceso a la base de datos. Por eso no hay recuperación.
 //   · No se guardan chats, mensajes, IPs ni nombres.
@@ -12,6 +15,7 @@
 
 const ESTADOS = ["abierta", "en_curso", "hecha", "descartada"];
 const MAX_PROPUESTAS_DIA = 3;
+const ACTUALIZAR = "Tu cuenta ya usa la protección reforzada de contraseña. Actualiza la app (o entra desde la web) para continuar.";
 const hoy = () => new Date().toISOString().slice(0, 10);
 
 export class Comunidad {
@@ -30,11 +34,36 @@ export class Comunidad {
     } catch {
       /* la columna ya existe */
     }
+    // Derivación de la contraseña: 1 = 200 000 rondas de PBKDF2; 2 = 600 000.
+    try {
+      this.sql.exec("ALTER TABLE cuentas ADD COLUMN kdf INTEGER NOT NULL DEFAULT 1");
+    } catch {
+      /* la columna ya existe */
+    }
     this.cacheLista = null; // lista de propuestas (sin datos de cuentas), 30 s
   }
 
   uno(q, ...a) {
     return this.sql.exec(q, ...a).toArray()[0] || null;
+  }
+
+  /**
+   * Comprueba la contraseña de una cuenta. `d` trae el verificador en su kdf y, si es kdf 2,
+   * opcionalmente el de kdf 1 (`anterior`). Si la cuenta sigue en kdf 1 y la contraseña es
+   * correcta, se mejora a kdf 2 en el momento. Una cuenta ya en kdf 2 nunca acepta el de kdf 1.
+   */
+  comprobar(id, d) {
+    const c = this.uno("SELECT verificador, kdf, ver FROM cuentas WHERE id = ?", id);
+    if (!c) return { ok: false };
+    const kdf = d?.kdf === 2 ? 2 : 1;
+    if (c.kdf >= 2) {
+      if (kdf !== 2) return { ok: false, actualizar: true };
+      return { ok: igual(c.verificador, d.verificador), ver: c.ver };
+    }
+    const v1 = kdf === 2 ? d.anterior : d.verificador;
+    if (!igual(c.verificador, v1)) return { ok: false };
+    if (kdf === 2 && validoHex(d.verificador, 64)) this.sql.exec("UPDATE cuentas SET verificador = ?, kdf = 2 WHERE id = ?", d.verificador, id);
+    return { ok: true, ver: c.ver };
   }
 
   async fetch(request) {
@@ -48,13 +77,12 @@ export class Comunidad {
       if (!validoHex(datos.id, 32) || !validoHex(datos.verificador, 64)) return r({ error: "Datos inválidos" }, 400);
       // Mensaje genérico: no confirma a terceros si un correo tiene cuenta.
       if (this.uno("SELECT id FROM cuentas WHERE id = ?", datos.id)) return r({ error: "No se pudo crear la cuenta. Si ya tienes una con ese correo, usa «Entrar»." }, 409);
-      this.sql.exec("INSERT INTO cuentas (id, verificador, creada) VALUES (?, ?, ?)", datos.id, datos.verificador, hoy());
+      this.sql.exec("INSERT INTO cuentas (id, verificador, creada, kdf) VALUES (?, ?, ?, ?)", datos.id, datos.verificador, hoy(), datos.kdf === 2 ? 2 : 1);
       return r({ ok: true });
     }
     if (ruta === "/cuentas/verificar") {
-      const c = this.uno("SELECT verificador, ver FROM cuentas WHERE id = ?", datos.id);
-      const ok = !!c && igual(c.verificador, datos.verificador);
-      return r({ ok, ver: ok ? c.ver : undefined });
+      const c = this.comprobar(datos.id, datos);
+      return r({ ok: c.ok, ver: c.ok ? c.ver : undefined, actualizar: c.actualizar || undefined });
     }
     if (ruta === "/cuentas/salir") {
       // Cerrar sesión en todos los dispositivos: sube la versión y las sesiones emitidas dejan de valer.
@@ -69,15 +97,17 @@ export class Comunidad {
       return r({ ok: !!this.uno("SELECT id FROM cuentas WHERE id = ?", datos.id) });
     }
     if (ruta === "/cuentas/cambiar") {
-      const c = this.uno("SELECT verificador FROM cuentas WHERE id = ?", datos.id);
-      if (!c || !igual(c.verificador, datos.verificadorActual)) return r({ error: "La contraseña actual no es correcta" }, 401);
-      if (!validoHex(datos.verificadorNuevo, 64)) return r({ error: "Datos inválidos" }, 400);
-      this.sql.exec("UPDATE cuentas SET verificador = ?, ver = ver + 1 WHERE id = ?", datos.verificadorNuevo, datos.id);
+      if (!validoHex(datos.nuevo?.verificador, 64)) return r({ error: "Datos inválidos" }, 400);
+      const c = this.comprobar(datos.id, datos.actual);
+      if (c.actualizar) return r({ error: ACTUALIZAR, actualizar: true }, 426);
+      if (!c.ok) return r({ error: "La contraseña actual no es correcta" }, 401);
+      this.sql.exec("UPDATE cuentas SET verificador = ?, kdf = ?, ver = ver + 1 WHERE id = ?", datos.nuevo.verificador, datos.nuevo.kdf === 2 ? 2 : 1, datos.id);
       return r({ ok: true, ver: this.uno("SELECT ver FROM cuentas WHERE id = ?", datos.id).ver });
     }
     if (ruta === "/cuentas/borrar") {
-      const c = this.uno("SELECT verificador FROM cuentas WHERE id = ?", datos.id);
-      if (!c || !igual(c.verificador, datos.verificador)) return r({ error: "La contraseña no es correcta" }, 401);
+      const c = this.comprobar(datos.id, datos);
+      if (c.actualizar) return r({ error: ACTUALIZAR, actualizar: true }, 426);
+      if (!c.ok) return r({ error: "La contraseña no es correcta" }, 401);
       // Se borra la cuenta y sus votos; sus propuestas quedan sin autor (siguen siendo de la comunidad).
       this.sql.exec("DELETE FROM votos WHERE cuenta = ?", datos.id);
       this.sql.exec("UPDATE propuestas SET autor = NULL WHERE autor = ?", datos.id);

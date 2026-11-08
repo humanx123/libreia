@@ -90,8 +90,8 @@ async function hmac(secreto, texto) {
 // ---------------------------------------------------------------- cuenta y sesión
 /** Cuenta vigente: la del KV (si se cambió la contraseña desde el panel) o la de los secretos. */
 async function cuenta(env) {
-  const kv = await env.CONFIG.get("admin:cuenta", "json");
-  // El registro vive en un KV compartido con el Worker público: solo vale si lo firmó este panel.
+  const kv = await env.PANEL.get("admin:cuenta", "json");
+  // Vive en el KV propio del panel y además va firmado: solo vale si lo firmó este panel.
   if (kv?.usuario && kv?.hash && kv?.sal && kv?.firma && env.SESSION_SECRET &&
       igualesSeguro(kv.firma, await firmaCuenta(env, kv))) return kv;
   if (env.ADMIN_USER && env.ADMIN_PASS_HASH && env.ADMIN_PASS_SALT) return { usuario: env.ADMIN_USER, hash: env.ADMIN_PASS_HASH, sal: env.ADMIN_PASS_SALT };
@@ -103,7 +103,7 @@ const firmaCuenta = (env, c) => hmac(env.SESSION_SECRET, `cuenta:${c.usuario}:${
 // La versión de la sesión depende del hash y de una generación que sube al cerrar sesión:
 // al cambiar la contraseña o salir, todas las sesiones anteriores caducan. No expone el hash.
 async function versionDe(env, c) {
-  const gen = (await env.CONFIG.get("admin:generacion")) || "0";
+  const gen = (await env.PANEL.get("admin:generacion")) || "0";
   return (await hmac(env.SESSION_SECRET, `v2:${c.hash}:${gen}`)).slice(0, 16);
 }
 
@@ -152,9 +152,9 @@ const limiteContrasena = (env, usuario) => limitar(env, `pw:${usuario}`, LOGIN_L
 // el registro nunca debe impedir entrar ni administrar.
 async function registrar(env, request, usuario, accion) {
   try {
-    const lista = (await env.CONFIG.get("admin:registro", "json")) || [];
+    const lista = (await env.PANEL.get("admin:registro", "json")) || [];
     lista.unshift({ t: Date.now(), usuario, ip: request.headers.get("CF-Connecting-IP") || "?", accion });
-    await env.CONFIG.put("admin:registro", JSON.stringify(lista.slice(0, MAX_REGISTRO)));
+    await env.PANEL.put("admin:registro", JSON.stringify(lista.slice(0, MAX_REGISTRO)));
   } catch (e) {
     console.error("No se pudo escribir el registro:", e.message);
   }
@@ -382,8 +382,8 @@ async function api(request, env, ruta, url) {
     // Cerrar sesión invalida todas las sesiones abiertas (sube la generación), solo si la sesión era válida.
     const s = await sesionValida(request, env);
     if (s) {
-      const gen = Number((await env.CONFIG.get("admin:generacion")) || 0) + 1;
-      await env.CONFIG.put("admin:generacion", String(gen)).catch((e) => console.error("generación:", e.message));
+      const gen = Number((await env.PANEL.get("admin:generacion")) || 0) + 1;
+      await env.PANEL.put("admin:generacion", String(gen)).catch((e) => console.error("generación:", e.message));
     }
     return json({ ok: true }, 200, { "Set-Cookie": galletaSesion("", 0) });
   }
@@ -448,7 +448,7 @@ async function api(request, env, ruta, url) {
     // contraseña. Una clave sin host conocido también exige contraseña (antes se podía quitar un
     // proveedor y volver a añadir su clave apuntando a otro servidor sin confirmar nada).
     const actual = (await env.CONFIG.get("motor:catalogo", "json")) || CATALOGO;
-    const aprobados = (await env.CONFIG.get("motor:hostsAprobados", "json")) || {};
+    const aprobados = (await env.PANEL.get("motor:hostsAprobados", "json")) || {};
     const hostsPorClave = {};
     const anotar = (clave, host) => (hostsPorClave[clave] ||= new Set()).add(host);
     for (const fuente of [CATALOGO, actual]) for (const p of Object.values(fuente.providers)) if (p.secretName) anotar(p.secretName, new URL(p.url).host);
@@ -465,7 +465,7 @@ async function api(request, env, ruta, url) {
         return json({ error: `Confirma con tu contraseña: estas claves se enviarían a otro servidor: ${cambios.join(", ")}`, requiereContraseña: true, cambios }, 403);
       }
       for (const n of nuevos) aprobados[n.clave] = [...new Set([...(aprobados[n.clave] || []), n.host])];
-      await env.CONFIG.put("motor:hostsAprobados", JSON.stringify(aprobados));
+      await env.PANEL.put("motor:hostsAprobados", JSON.stringify(aprobados));
       await registrar(env, request, usuario, `Clave enviada a otro host confirmada con contraseña: ${cambios.join(", ")}`);
     }
     await env.CONFIG.put("motor:catalogo", JSON.stringify(limpiarCatalogo(catalogo)));
@@ -499,6 +499,7 @@ async function api(request, env, ruta, url) {
       busquedaWeb: a.busquedaWeb !== false,
       requerirCuenta: a.requerirCuenta !== false,
       invitados: a.invitados !== false,
+      captchaRegistro: a.captchaRegistro !== false,
       mensajesInvitado: Math.min(Math.max(Math.floor(Number(a.mensajesInvitado)) || 10, 1), 100),
       mensajesDiaCuenta: Math.min(Math.max(Math.floor(Number(a.mensajesDiaCuenta)) || 300, 10), 5000),
       resultadosWeb: Math.min(Math.max(Math.floor(Number(a.resultadosWeb)) || 5, 1), 8),
@@ -539,7 +540,7 @@ async function api(request, env, ruta, url) {
 
   // --- registro
   if (ruta === "/api/registro" && metodo === "GET") {
-    return json({ registro: (await env.CONFIG.get("admin:registro", "json")) || [] });
+    return json({ registro: (await env.PANEL.get("admin:registro", "json")) || [] });
   }
 
   // --- cuenta
@@ -556,7 +557,7 @@ async function api(request, env, ruta, url) {
     const sal = hex(crypto.getRandomValues(new Uint8Array(16)));
     const nuevaCuenta = { usuario: c.usuario, hash: await pbkdf2(n, sal), sal };
     nuevaCuenta.firma = await firmaCuenta(env, nuevaCuenta);
-    await env.CONFIG.put("admin:cuenta", JSON.stringify(nuevaCuenta));
+    await env.PANEL.put("admin:cuenta", JSON.stringify(nuevaCuenta));
     await registrar(env, request, usuario, "Contraseña cambiada");
     // La sesión actual se renueva; las demás caducan porque cambió la versión.
     return json({ ok: true }, 200, { "Set-Cookie": galletaSesion(await crearSesion(env, nuevaCuenta), SESION_MS / 1000) });

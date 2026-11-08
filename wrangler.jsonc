@@ -26,7 +26,9 @@
   "vars": {
     "REPO": "https://github.com/humanx123/libreia",
     // Token público que va dentro del APK: solo filtra tráfico casual.
-    "APP_TOKEN": "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c"
+    "APP_TOKEN": "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c",
+    // Clave pública del captcha de registro (Cloudflare Turnstile). La secreta es TURNSTILE_SECRET.
+    "TURNSTILE_SITEKEY": "0x4AAAAAAF4-38O1e_3qcVLN"
     // Las claves de los proveedores van como secretos: KEY_<PLATAFORMA> (wrangler secret bulk).
   },
   // Sin registros de peticiones en Cloudflare: LibreIA promete no guardar datos de uso individuales.

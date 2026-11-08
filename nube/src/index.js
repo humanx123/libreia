@@ -11,7 +11,7 @@ import { buscarWeb, vale_la_pena_buscar, contextoFuentes } from "./busqueda.js";
 export { Estadisticas } from "./estadisticas.js";
 export { Comunidad } from "./comunidad.js";
 
-const VERSION = "3.2.0";
+const VERSION = "3.3.0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -413,15 +413,50 @@ async function llamarComunidad(env, ruta, datos, metodo = "POST") {
   }
 }
 
-/** Del par (correoHash, clave) que manda la app se derivan el id y el verificador guardados. */
-async function credenciales(env, cuerpo) {
+/**
+ * Del par (correoHash, clave) que manda la app se derivan el id y el verificador guardados.
+ * kdf 2 (app ≥ 0.10): `clave` lleva 600 000 rondas de PBKDF2 y `claveAnterior` las 200 000 de kdf 1,
+ * que solo sirve para pasar a kdf 2 una cuenta antigua. Las apps antiguas mandan solo kdf 1.
+ */
+const HEX64 = /^[0-9a-f]{64}$/;
+async function credenciales(env, cuerpo, campo = "clave", campoAnterior = "claveAnterior") {
   const correoHash = String(cuerpo?.correoHash || "");
-  const clave = String(cuerpo?.clave || "");
-  if (!/^[0-9a-f]{64}$/.test(correoHash) || !/^[0-9a-f]{64}$/.test(clave)) return null;
+  const clave = String(cuerpo?.[campo] || "");
+  if (!HEX64.test(correoHash) || !HEX64.test(clave)) return null;
+  const kdf = cuerpo?.kdf === 2 ? 2 : 1;
+  const anterior = kdf === 2 && HEX64.test(String(cuerpo?.[campoAnterior] || "")) ? await hmacHex(env.CUENTAS_PEPPER, "clave:" + cuerpo[campoAnterior]) : undefined;
   return {
     id: (await hmacHex(env.CUENTAS_PEPPER, "id:" + correoHash)).slice(0, 32),
-    verificador: await hmacHex(env.CUENTAS_PEPPER, "clave:" + clave),
+    kdf,
+    verificador: await hmacHex(env.CUENTAS_PEPPER, (kdf === 2 ? "clave2:" : "clave:") + clave),
+    anterior,
   };
+}
+
+// ---- captcha del registro (Cloudflare Turnstile)
+// Hosts desde los que se resuelve el widget: la web y la APK (que sirve la app desde http://localhost).
+const HOSTS_CAPTCHA = ["libre-ia.pages.dev", "libreia.pages.dev", "localhost"];
+const captchaActivo = (env, motor) => !!(env.TURNSTILE_SITEKEY && env.TURNSTILE_SECRET && motor.ajustes.captchaRegistro !== false);
+
+/** Valida el token de Turnstile con Cloudflare. Devuelve null si vale, o el motivo si no. */
+async function validarCaptcha(env, request, token) {
+  if (typeof token !== "string" || !token || token.length > 2048) return "falta";
+  try {
+    const form = new FormData();
+    form.append("secret", env.TURNSTILE_SECRET);
+    form.append("response", token);
+    const ip = request.headers.get("CF-Connecting-IP");
+    if (ip) form.append("remoteip", ip);
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", body: form, signal: AbortSignal.timeout(8000) });
+    const r = await res.json();
+    if (!r.success) return "rechazado:" + (r["error-codes"] || []).join(",");
+    const host = String(r.hostname || "");
+    if (!HOSTS_CAPTCHA.some((h) => host === h || host.endsWith("." + h))) return "host:" + host;
+    return null;
+  } catch (e) {
+    console.error("Turnstile no disponible:", e?.message || e);
+    return "servicio";
+  }
 }
 
 async function manejarComunidad(request, env, path, cuenta) {
@@ -433,12 +468,22 @@ async function manejarComunidad(request, env, path, cuenta) {
   const fallo = (msg, estado) => json({ error: msg }, estado, CORS_HEADERS);
 
   if (path === "/v1/cuenta/registro" && request.method === "POST") {
-    // Máximo 5 cuentas nuevas por hora desde la misma red y un tope global diario (frena la creación masiva).
-    if ((await limitePorIp(env, "registro:" + red, 5, 3600000, { cerrado: true })) > 0) return fallo("Demasiados registros desde tu red. Inténtalo más tarde.", 429);
-    if ((await limitePorIp(env, "registro:global", 500, 86400000, { cerrado: true })) > 0) return fallo("Hoy se alcanzó el máximo de cuentas nuevas. Inténtalo mañana o usa el modo prueba.", 429);
     const c = await credenciales(env, cuerpo);
     if (!c) return fallo("Datos de registro inválidos", 400);
-    const r = await llamarComunidad(env, "/cuentas/registrar", c);
+    // Máximo 5 cuentas nuevas por hora desde la misma red y un tope global diario (frena la creación masiva).
+    if ((await limitePorIp(env, "registro:" + red, 5, 3600000, { cerrado: true })) > 0) return fallo("Demasiados registros desde tu red. Inténtalo más tarde.", 429);
+    // Captcha antes del tope global: así los bots no pueden agotar el cupo diario de cuentas nuevas.
+    if (captchaActivo(env, await cargarMotor(env))) {
+      const motivo = await validarCaptcha(env, request, cuerpo.captcha);
+      if (motivo === "falta") return json({ error: "Completa la verificación «no soy un robot». Si no la ves, actualiza la app.", codigo: "captcha" }, 400, CORS_HEADERS);
+      if (motivo === "servicio") return fallo("No se pudo comprobar la verificación ahora. Inténtalo en un momento.", 503);
+      if (motivo) {
+        console.warn("Captcha de registro no válido:", motivo);
+        return json({ error: "La verificación «no soy un robot» no es válida o caducó. Vuelve a intentarlo.", codigo: "captcha" }, 400, CORS_HEADERS);
+      }
+    }
+    if ((await limitePorIp(env, "registro:global", 500, 86400000, { cerrado: true })) > 0) return fallo("Hoy se alcanzó el máximo de cuentas nuevas. Inténtalo mañana o usa el modo prueba.", 429);
+    const r = await llamarComunidad(env, "/cuentas/registrar", { id: c.id, verificador: c.verificador, kdf: c.kdf });
     if (r.estado !== 200) return fallo(r.datos.error, r.estado);
     return json({ ok: true, sesion: await crearSesion(env, c.id, 0) }, 200, CORS_HEADERS);
   }
@@ -451,6 +496,7 @@ async function manejarComunidad(request, env, path, cuenta) {
     if ((await limitePorIp(env, "entrar-id:" + c.id, 10, 3600000, { cerrado: true })) > 0) return fallo("Demasiados intentos para esta cuenta. Espera una hora.", 429);
     const r = await llamarComunidad(env, "/cuentas/verificar", c);
     if (r.estado !== 200) return fallo(r.datos.error, r.estado);
+    if (r.datos.actualizar) return fallo("Tu cuenta ya usa la protección reforzada de contraseña. Actualiza la app desde https://libreia.pages.dev o entra desde la web.", 426);
     if (!r.datos.ok) return fallo("Correo o contraseña incorrectos", 401);
     return json({ ok: true, sesion: await crearSesion(env, c.id, r.datos.ver || 0) }, 200, CORS_HEADERS);
   }
@@ -467,11 +513,11 @@ async function manejarComunidad(request, env, path, cuenta) {
   if (!cuenta) return fallo("Para proponer, votar o gestionar tu cuenta necesitas entrar con tu cuenta", 401);
 
   if (path === "/v1/cuenta/contrasena" && request.method === "POST") {
-    const actual = await credenciales(env, { correoHash: cuerpo.correoHash, clave: cuerpo.claveActual });
-    const nueva = await credenciales(env, { correoHash: cuerpo.correoHash, clave: cuerpo.claveNueva });
+    const actual = await credenciales(env, cuerpo, "claveActual", "claveActualAnterior");
+    const nueva = await credenciales(env, cuerpo, "claveNueva");
     if (!actual || !nueva || actual.id !== cuenta.id) return fallo("Datos inválidos", 400);
     if ((await limitePorIp(env, "entrar-id:" + cuenta.id, 10, 3600000, { cerrado: true })) > 0) return fallo("Demasiados intentos. Espera una hora.", 429);
-    const r = await llamarComunidad(env, "/cuentas/cambiar", { id: cuenta.id, verificadorActual: actual.verificador, verificadorNuevo: nueva.verificador });
+    const r = await llamarComunidad(env, "/cuentas/cambiar", { id: cuenta.id, actual, nuevo: { verificador: nueva.verificador, kdf: nueva.kdf } });
     if (r.estado !== 200) return fallo(r.datos.error, r.estado);
     // Las demás sesiones caducan (sube la versión); esta recibe una sesión nueva.
     versiones.delete(cuenta.id);
@@ -530,6 +576,8 @@ async function transparencia(env, motor) {
     mensajes30: uso?.mensajes?.dias30 ?? null,
     proveedores,
     // Modo prueba (chatear sin cuenta): la app y la web lo muestran antes de entrar.
+    // Registro: clave pública del captcha (null si está desactivado).
+    registro: { captcha: captchaActivo(env, motor) ? env.TURNSTILE_SITEKEY : null },
     prueba: {
       activa: motor.ajustes.requerirCuenta === false || motor.ajustes.invitados !== false,
       mensajesPorHora: motor.ajustes.requerirCuenta === false ? null : Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100),

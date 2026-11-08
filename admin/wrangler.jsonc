@@ -7,8 +7,13 @@
   "workers_dev": true,
   // Fuentes del tema (OFL) empaquetadas en el propio Worker: se sirven en /fuentes/*.woff2.
   "rules": [{ "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
-  // Mismo KV que el principal: aquí se escriben catálogo, ajustes y claves cifradas.
-  "kv_namespaces": [{ "binding": "CONFIG", "id": "4184158a8d7a41ffa5f130096fdf08b5" }],
+  // CONFIG es el KV que comparte con el principal: aquí se escriben catálogo, ajustes y claves cifradas.
+  // PANEL es solo del panel (cuenta, generación de sesiones, registro de acciones y hosts aprobados):
+  // el Worker público no tiene acceso a él.
+  "kv_namespaces": [
+    { "binding": "CONFIG", "id": "4184158a8d7a41ffa5f130096fdf08b5" },
+    { "binding": "PANEL", "id": "50bce93a88974c52bee85082d8024f0e" }
+  ],
   // Conexión privada al Worker principal (no pasa por su URL pública).
   "services": [{ "binding": "MOTOR", "service": "libreia-api" }],
   // Reutiliza el limitador del principal para frenar intentos de login.
