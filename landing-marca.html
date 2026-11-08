@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:Anton;src:url(fonts/anton-latin-400-normal.woff2)}
+@font-face{font-family:SM;src:url(fonts/space-mono-latin-700-normal.woff2)}
+html,body{margin:0;background:transparent}
+.box{display:flex;align-items:center;justify-content:center;overflow:hidden}
+.ink{background:#090b10}
+.stack{font-family:Anton;text-transform:uppercase;line-height:.8;text-align:center;color:#efe8d8}
+.stack b{display:block;font-weight:400;color:#ff2bd1;margin-top:.1em}
+.row{font-family:Anton;color:#efe8d8;letter-spacing:.01em;white-space:nowrap}
+.row b{font-weight:400;color:#ff2bd1}
+.round{border-radius:50%}
+</style></head><body>
+<script>
+const q=new URLSearchParams(location.search), t=q.get("t"), s=+q.get("s")||512, w=+q.get("w")||s, h=+q.get("h")||s;
+const d=document.createElement("div"); d.className="box"; d.style.width=w+"px"; d.style.height=h+"px";
+if(t==="icon"||t==="round"){ d.classList.add("ink"); if(t==="round") d.classList.add("round");
+  d.innerHTML=`<div class="stack" style="font-size:${s*0.30}px">Libre<b style="font-size:${s*0.50}px">IA</b></div>`; }
+if(t==="fg"){ /* adaptive foreground: contenido dentro del 61 % central */
+  d.innerHTML=`<div class="stack" style="font-size:${s*0.19}px">Libre<b style="font-size:${s*0.31}px">IA</b></div>`; }
+if(t==="splash"){ d.classList.add("ink"); const f=Math.min(w,h)*0.22;
+  d.innerHTML=`<div class="row" style="font-size:${f}px">LIBRE<b>IA</b></div>`; }
+if(t==="fav"){ d.classList.add("ink");
+  d.innerHTML=`<div class="stack" style="font-size:${s*0.30}px">Libre<b style="font-size:${s*0.50}px">IA</b></div>`; }
+document.body.appendChild(d);
+</script></body></html>

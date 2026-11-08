@@ -6,7 +6,7 @@ export const CONTACT_EMAIL = "libreia@proton.me";
 
 export const PRIVACY_POINTS = `
 <ul class="privacy-list">
-  <li><b>Tu correo y tu contraseña no salen de tu dispositivo.</b> Se transforman aquí en huellas cifradas irreversibles; el servidor solo guarda esas huellas.</li>
+  <li><b>Tu correo y tu contraseña no salen de tu dispositivo.</b> Se transforman aquí en huellas (la contraseña, con 200 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado.</li>
   <li><b>Tus chats viven solo en este dispositivo.</b> No se guardan en ningún servidor. Puedes exportarlos o borrarlos en Configuración.</li>
   <li><b>No guardamos</b> tu IP, tu nombre ni lo que escribes. Solo contamos números agregados (cuántos usuarios y mensajes) y puedes desactivarlo.</li>
   <li><b>El correo es solo tu nombre de usuario:</b> no lo verificamos ni te escribiremos nunca.</li>
@@ -23,7 +23,7 @@ export const ABOUT_HTML = `
   <button class="back-btn" data-back type="button">← Volver al chat</button>
 
   <section class="hero">
-    <img src="/libreia-logo.png" alt="" class="hero-logo">
+    <div class="hero-logo" aria-hidden="true">LIBRE<b>IA</b></div>
     <p class="hero-kicker">// Manifiesto · código abierto · AGPL-3.0</p>
     <h1 class="hero-title"><span>La IA es</span><span class="struck">propiedad privada</span><span class="hl">bien común.</span></h1>
     <p class="hero-sub"><b>LibreIA</b>: inteligencia artificial libre, neutral y gobernada por su comunidad. Más en

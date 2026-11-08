@@ -86,8 +86,11 @@ export class Estadisticas {
         this.diaVistos = dia;
         this.vistosHoy.clear();
         this.sql.exec("DELETE FROM activos WHERE dia < ?", haceDias(DIAS_RETENCION_ACTIVOS));
+        // Instalaciones sin actividad en 180 días: se olvidan (la tabla no crece sin límite).
+        this.sql.exec("DELETE FROM instalaciones WHERE ultima < ?", haceDias(180));
       }
       // Una escritura por instalación y día como mucho.
+      if (this.vistosHoy.size > 50000) this.vistosHoy.clear(); // tope de memoria ante ids inventados
       if (!this.vistosHoy.has(id)) {
         this.vistosHoy.add(id);
         this.sql.exec("INSERT OR IGNORE INTO activos (dia, id) VALUES (?, ?)", dia, id);

@@ -29,6 +29,10 @@ const PBKDF2_ITER = 10000; // Bajo para caber en 10 ms de CPU; la contraseña es
 const MAX_REGISTRO = 60;
 const LOGIN_LIMITE = 5;
 const LOGIN_VENTANA_MS = 15 * 60 * 1000;
+const LOGIN_GLOBAL = 30; // intentos fallidos o no, de todo el mundo, cada 15 min
+const MIN_CONTRASENA = 16;
+const MAX_CUERPO = 64 * 1024;
+const RESERVADOS = new Set(["__proto__", "constructor", "prototype"]);
 
 const SEGURIDAD = {
   "X-Frame-Options": "DENY",
@@ -87,17 +91,25 @@ async function hmac(secreto, texto) {
 /** Cuenta vigente: la del KV (si se cambió la contraseña desde el panel) o la de los secretos. */
 async function cuenta(env) {
   const kv = await env.CONFIG.get("admin:cuenta", "json");
-  if (kv?.usuario && kv?.hash && kv?.sal) return kv;
+  // El registro vive en un KV compartido con el Worker público: solo vale si lo firmó este panel.
+  if (kv?.usuario && kv?.hash && kv?.sal && kv?.firma && env.SESSION_SECRET &&
+      igualesSeguro(kv.firma, await firmaCuenta(env, kv))) return kv;
   if (env.ADMIN_USER && env.ADMIN_PASS_HASH && env.ADMIN_PASS_SALT) return { usuario: env.ADMIN_USER, hash: env.ADMIN_PASS_HASH, sal: env.ADMIN_PASS_SALT };
   return null;
 }
 
-// La versión de la sesión depende del hash: al cambiar la contraseña, las sesiones viejas caducan.
-const versionDe = (c) => c.hash.slice(0, 12);
+const firmaCuenta = (env, c) => hmac(env.SESSION_SECRET, `cuenta:${c.usuario}:${c.hash}:${c.sal}`);
+
+// La versión de la sesión depende del hash y de una generación que sube al cerrar sesión:
+// al cambiar la contraseña o salir, todas las sesiones anteriores caducan. No expone el hash.
+async function versionDe(env, c) {
+  const gen = (await env.CONFIG.get("admin:generacion")) || "0";
+  return (await hmac(env.SESSION_SECRET, `v2:${c.hash}:${gen}`)).slice(0, 16);
+}
 
 async function crearSesion(env, c) {
   const exp = Date.now() + SESION_MS;
-  const base = `${c.usuario}.${exp}.${versionDe(c)}`;
+  const base = `${c.usuario}.${exp}.${await versionDe(env, c)}`;
   return `${base}.${await hmac(env.SESSION_SECRET, base)}`;
 }
 
@@ -111,18 +123,29 @@ async function sesionValida(request, env) {
   if (!igualesSeguro(firma, await hmac(env.SESSION_SECRET, `${usuario}.${exp}.${version}`))) return null;
   if (!(Number(exp) > Date.now())) return null;
   const c = await cuenta(env);
-  if (!c || c.usuario !== usuario || versionDe(c) !== version) return null;
+  if (!c || c.usuario !== usuario || !igualesSeguro(await versionDe(env, c), version)) return null;
   return { usuario };
 }
 
 const galletaSesion = (token, maxAge) => `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
 
-async function limiteLogin(env, ip) {
+/** Limitador persistente (no se reinicia al expulsar el objeto). Devuelve segundos de espera. */
+async function limitar(env, clave, limite, ventana) {
   if (!env.LIMITADOR) return 0;
-  const stub = env.LIMITADOR.get(env.LIMITADOR.idFromName(`login:${ip}`));
-  const r = await stub.fetch(`https://limite/?limite=${LOGIN_LIMITE}&ventana=${LOGIN_VENTANA_MS}`);
+  const stub = env.LIMITADOR.get(env.LIMITADOR.idFromName(clave));
+  const r = await stub.fetch(`https://limite/?limite=${limite}&ventana=${ventana}&persistir=1`);
   return (await r.json()).espera || 0;
 }
+// IPv6: se agrupa por /64 (un atacante suele tener el bloque entero).
+const redDe = (ip) => (ip.includes(":") ? ip.split(":").slice(0, 4).join(":") + "::/64" : ip);
+
+async function limiteLogin(env, ip) {
+  const porRed = await limitar(env, `login:${redDe(ip)}`, LOGIN_LIMITE, LOGIN_VENTANA_MS);
+  if (porRed > 0) return porRed;
+  return limitar(env, "login:global", LOGIN_GLOBAL, LOGIN_VENTANA_MS);
+}
+/** Comprobar la contraseña con sesión iniciada también tiene límite (5 cada 15 min). */
+const limiteContrasena = (env, usuario) => limitar(env, `pw:${usuario}`, LOGIN_LIMITE, LOGIN_VENTANA_MS);
 
 // ---------------------------------------------------------------- registro de acciones
 // Si no se puede escribir el registro (p. ej. cuota diaria de KV agotada), la acción sigue adelante:
@@ -240,31 +263,38 @@ function validarCatalogo(c) {
   const errores = [];
   if (!c || typeof c !== "object") return ["El catálogo debe ser un objeto"];
   const prov = c.providers;
-  if (!prov || typeof prov !== "object" || !Object.keys(prov).length) errores.push("Faltan proveedores");
+  if (!prov || typeof prov !== "object" || Array.isArray(prov) || !Object.keys(prov).length) errores.push("Faltan proveedores");
+  if (prov && Object.keys(prov).length > 32) errores.push("Demasiados proveedores (máximo 32)");
   for (const [id, p] of Object.entries(prov || {})) {
-    if (!/^[a-z0-9_-]{1,32}$/.test(id)) errores.push(`Id de proveedor inválido: ${id}`);
+    if (!/^[a-z0-9_-]{1,32}$/.test(id) || RESERVADOS.has(id)) errores.push(`Id de proveedor inválido: ${id}`);
+    if (!p || typeof p !== "object") { errores.push(`${id}: definición inválida`); continue; }
     try {
       const u = new URL(p.url);
       if (u.protocol !== "https:") errores.push(`${id}: la URL debe ser https`);
+      if (u.username || u.password) errores.push(`${id}: la URL no puede llevar usuario ni contraseña`);
+      if (String(p.url).length > 300) errores.push(`${id}: URL demasiado larga`);
     } catch {
       errores.push(`${id}: URL inválida`);
     }
-    if (!p || typeof p !== "object") { errores.push(`${id}: definición inválida`); continue; }
     if (!["bearer", "none", "x-api-key", "x-goog-api-key"].includes(p.auth)) errores.push(`${id}: auth inválido`);
     if (p.auth !== "none" && !/^KEY_[A-Z0-9_]{1,40}$/.test(p.secretName || "")) errores.push(`${id}: secretName debe ser KEY_ALGO`);
   }
   const destinoOk = (d, donde) => {
     if (!d || typeof d.platform !== "string" || !prov || !Object.hasOwn(prov, d.platform)) errores.push(`${donde}: proveedor desconocido (${d?.platform})`);
-    if (!d?.model || typeof d.model !== "string" || d.model.length > 120) errores.push(`${donde}: modelo inválido`);
+    if (!d?.model || typeof d.model !== "string" || !/^[\w.\-/:@]{1,120}$/.test(d.model.trim())) errores.push(`${donde}: modelo inválido`);
   };
+  const MAX_LISTA = 20;
   for (const m of ["neutral", "libre", "tecnico"]) {
     const lista = c.modes?.[m];
-    if (!Array.isArray(lista) || !lista.length) errores.push(`El modo ${m} necesita al menos un modelo`);
+    if (Array.isArray(lista) && lista.length > MAX_LISTA) errores.push(`El modo ${m} tiene demasiados modelos (máximo ${MAX_LISTA})`);
+    else if (!Array.isArray(lista) || !lista.length) errores.push(`El modo ${m} necesita al menos un modelo`);
     else lista.forEach((d, i) => destinoOk(d, `${m} #${i + 1}`));
   }
-  if (!Array.isArray(c.fusion?.panel) || !c.fusion.panel.length) errores.push("Fusión necesita al menos un modelo en el panel");
+  if (!Array.isArray(c.fusion?.panel) || !c.fusion.panel.length || c.fusion.panel.length > MAX_LISTA) errores.push(`Fusión necesita entre 1 y ${MAX_LISTA} modelos en el panel`);
   else c.fusion.panel.forEach((d, i) => destinoOk(d, `fusión panel #${i + 1}`));
-  (c.fusion?.panelFallback || []).forEach((d, i) => destinoOk(d, `fusión respaldo #${i + 1}`));
+  const respaldo = c.fusion?.panelFallback || [];
+  if (!Array.isArray(respaldo) || respaldo.length > MAX_LISTA) errores.push(`El respaldo de Fusión debe ser una lista de hasta ${MAX_LISTA}`);
+  else respaldo.forEach((d, i) => destinoOk(d, `fusión respaldo #${i + 1}`));
   destinoOk(c.fusion?.synth, "fusión sintetizador");
   return errores;
 }
@@ -324,6 +354,7 @@ async function api(request, env, ruta, url) {
 
   // Peticiones que cambian algo: solo desde el propio origen y en JSON (defensa CSRF extra a SameSite=Strict).
   if (metodo !== "GET") {
+    if (Number(request.headers.get("Content-Length") || 0) > MAX_CUERPO) return json({ error: "Petición demasiado grande" }, 413);
     const origen = request.headers.get("Origin");
     if (origen && origen !== url.origin) return json({ error: "Origen no permitido" }, 403);
     if (!/^application\/json(\s*;|$)/i.test(request.headers.get("Content-Type") || "")) return json({ error: "Se requiere JSON" }, 415);
@@ -339,12 +370,21 @@ async function api(request, env, ruta, url) {
     const hash = await pbkdf2(String(contraseña || ""), c.sal);
     // Se compara siempre el hash (aunque el usuario no coincida) para no filtrar cuál falló.
     const ok = igualesSeguro(hash, c.hash) & igualesSeguro(String(usuario || ""), c.usuario);
-    if (!ok) return json({ error: "Usuario o contraseña incorrectos" }, 401);
+    if (!ok) {
+      console.warn("Panel: login fallido desde", redDe(ip));
+      return json({ error: "Usuario o contraseña incorrectos" }, 401);
+    }
     await registrar(env, request, c.usuario, "Inicio de sesión");
     return json({ ok: true, usuario: c.usuario }, 200, { "Set-Cookie": galletaSesion(await crearSesion(env, c), SESION_MS / 1000) });
   }
 
   if (ruta === "/api/logout" && metodo === "POST") {
+    // Cerrar sesión invalida todas las sesiones abiertas (sube la generación), solo si la sesión era válida.
+    const s = await sesionValida(request, env);
+    if (s) {
+      const gen = Number((await env.CONFIG.get("admin:generacion")) || 0) + 1;
+      await env.CONFIG.put("admin:generacion", String(gen)).catch((e) => console.error("generación:", e.message));
+    }
     return json({ ok: true }, 200, { "Set-Cookie": galletaSesion("", 0) });
   }
 
@@ -404,17 +444,28 @@ async function api(request, env, ruta, url) {
     if (errores.length) return json({ error: "El catálogo tiene errores", errores }, 400);
     // Mandar una clave a otro servidor es la forma de robarla: si cambia el host de un proveedor
     // con clave (o una clave pasa a otro host), se exige de nuevo la contraseña.
+    // Hosts de confianza por clave: los de fábrica, los del catálogo vigente y los ya aprobados con
+    // contraseña. Una clave sin host conocido también exige contraseña (antes se podía quitar un
+    // proveedor y volver a añadir su clave apuntando a otro servidor sin confirmar nada).
     const actual = (await env.CONFIG.get("motor:catalogo", "json")) || CATALOGO;
+    const aprobados = (await env.CONFIG.get("motor:hostsAprobados", "json")) || {};
     const hostsPorClave = {};
-    for (const p of Object.values(actual.providers)) if (p.secretName) (hostsPorClave[p.secretName] ||= new Set()).add(new URL(p.url).host);
-    const cambios = Object.entries(catalogo.providers)
-      .filter(([, p]) => p.auth !== "none" && hostsPorClave[p.secretName] && !hostsPorClave[p.secretName].has(new URL(p.url).host))
-      .map(([id, p]) => `${id} → ${new URL(p.url).host}`);
+    const anotar = (clave, host) => (hostsPorClave[clave] ||= new Set()).add(host);
+    for (const fuente of [CATALOGO, actual]) for (const p of Object.values(fuente.providers)) if (p.secretName) anotar(p.secretName, new URL(p.url).host);
+    for (const [clave, hosts] of Object.entries(aprobados)) if (Array.isArray(hosts)) hosts.forEach((h) => anotar(clave, h));
+    const nuevos = Object.entries(catalogo.providers)
+      .filter(([, p]) => p.auth !== "none" && !hostsPorClave[p.secretName]?.has(new URL(p.url).host))
+      .map(([id, p]) => ({ id, clave: p.secretName, host: new URL(p.url).host }));
+    const cambios = nuevos.map((n) => `${n.id} (${n.clave}) → ${n.host}`);
     if (cambios.length) {
       const c = await cuenta(env);
+      if ((await limiteContrasena(env, usuario)) > 0) return json({ error: "Demasiados intentos de contraseña. Espera 15 minutos." }, 429);
       if (!contraseña || !igualesSeguro(await pbkdf2(String(contraseña), c.sal), c.hash)) {
+        if (contraseña) console.warn("Panel: contraseña incorrecta al confirmar hosts de claves");
         return json({ error: `Confirma con tu contraseña: estas claves se enviarían a otro servidor: ${cambios.join(", ")}`, requiereContraseña: true, cambios }, 403);
       }
+      for (const n of nuevos) aprobados[n.clave] = [...new Set([...(aprobados[n.clave] || []), n.host])];
+      await env.CONFIG.put("motor:hostsAprobados", JSON.stringify(aprobados));
       await registrar(env, request, usuario, `Clave enviada a otro host confirmada con contraseña: ${cambios.join(", ")}`);
     }
     await env.CONFIG.put("motor:catalogo", JSON.stringify(limpiarCatalogo(catalogo)));
@@ -449,6 +500,7 @@ async function api(request, env, ruta, url) {
       requerirCuenta: a.requerirCuenta !== false,
       invitados: a.invitados !== false,
       mensajesInvitado: Math.min(Math.max(Math.floor(Number(a.mensajesInvitado)) || 10, 1), 100),
+      mensajesDiaCuenta: Math.min(Math.max(Math.floor(Number(a.mensajesDiaCuenta)) || 300, 10), 5000),
       resultadosWeb: Math.min(Math.max(Math.floor(Number(a.resultadosWeb)) || 5, 1), 8),
     };
     await env.CONFIG.put("motor:ajustes", JSON.stringify(ajustes));
@@ -494,11 +546,16 @@ async function api(request, env, ruta, url) {
   if (ruta === "/api/contrasena" && metodo === "POST") {
     const { actual, nueva } = await request.json().catch(() => ({}));
     const c = await cuenta(env);
-    if (!igualesSeguro(await pbkdf2(String(actual || ""), c.sal), c.hash)) return json({ error: "La contraseña actual no es correcta" }, 401);
+    if ((await limiteContrasena(env, usuario)) > 0) return json({ error: "Demasiados intentos de contraseña. Espera 15 minutos." }, 429);
+    if (!igualesSeguro(await pbkdf2(String(actual || ""), c.sal), c.hash)) {
+      console.warn("Panel: contraseña actual incorrecta al cambiarla");
+      return json({ error: "La contraseña actual no es correcta" }, 401);
+    }
     const n = String(nueva || "");
-    if (n.length < 12) return json({ error: "La nueva contraseña debe tener al menos 12 caracteres" }, 400);
+    if (n.length < MIN_CONTRASENA || n.length > 200) return json({ error: `La nueva contraseña debe tener entre ${MIN_CONTRASENA} y 200 caracteres` }, 400);
     const sal = hex(crypto.getRandomValues(new Uint8Array(16)));
     const nuevaCuenta = { usuario: c.usuario, hash: await pbkdf2(n, sal), sal };
+    nuevaCuenta.firma = await firmaCuenta(env, nuevaCuenta);
     await env.CONFIG.put("admin:cuenta", JSON.stringify(nuevaCuenta));
     await registrar(env, request, usuario, "Contraseña cambiada");
     // La sesión actual se renueva; las demás caducan porque cambió la versión.

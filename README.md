@@ -83,7 +83,32 @@ npx wrangler deploy
 #    (hash = PBKDF2-SHA256 de 10 000 iteraciones, en hex)
 ```
 
-Para la APK: `npx cap sync android && cd android && ./gradlew assembleDebug`.
+Para publicar todo de una vez (web, APK firmada, Worker, panel y sitio): `./publicar.sh`.
+
+La APK se firma en modo *release* con la clave indicada en `android/keystore.properties`, que no se sube al repositorio. Para compilarla a mano: `npx cap sync android && cd android && ./gradlew assembleRelease`.
+
+## Seguridad
+
+- **Sesiones:** se firman con HMAC e incluyen una versión de la cuenta. Cambiar la contraseña, cerrar sesión o borrar la cuenta invalida las sesiones anteriores.
+- **Límites persistentes** (Durable Objects): no se reinician cuando Cloudflare libera el objeto de memoria ni al redesplegar.
+  - Por minuto, por cuenta o por red (las IPv6 se agrupan por /64).
+  - Modo prueba: por instalación y por red.
+  - Tope diario por cuenta.
+  - Registros e inicios de sesión: por red y por cuenta.
+  - Si el limitador falla, los límites sensibles deniegan en vez de dejar pasar.
+- **Respuestas de la IA:**
+  - Se sanean con una lista estricta de etiquetas: sin formularios, estilos, ids ni atributos `data-`.
+  - Las citas se enlazan después de sanear y nunca dentro del código.
+  - Los resultados web se marcan como texto no confiable para el modelo.
+- **Datos importados o guardados:** cada campo se valida y se reconstruye, así que un archivo malicioso o roto no rompe la app.
+- **APK:** se publica en modo *release*, sin depuración, sin copias de seguridad en la nube y sin tráfico en claro.
+- **Panel:**
+  - Usar una clave con un host nuevo exige la contraseña.
+  - Los intentos de contraseña están limitados.
+  - El registro de la cuenta en KV va firmado.
+  - Cerrar sesión invalida todas las sesiones.
+
+Si encuentras un fallo de seguridad, escribe a **libreia@proton.me** antes de publicarlo.
 
 ## Contribuir
 
@@ -101,7 +126,8 @@ Son voluntarias y pagan servidores y modelos mejores para todas las personas. La
 
 Toda la familia comparte la misma piel, un brutalismo de protesta: el sitio (`landing/`), la app web, la APK (`src/tema.css`) y el panel (`admin/src/ui.js`).
 
-- **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, rojo `#ff4b2b` y ámbar `#e8c18b`.
+- **Logo:** la palabra **LIBRE**IA en Anton, con «IA» en magenta `#ff2bd1`. No hay ilustración.
+- **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, magenta `#ff2bd1` (solo el logo), rojo `#ff4b2b` y ámbar `#e8c18b`.
 - **Tipografías:** Anton para los titulares, Space Mono para las etiquetas y Archivo para el texto. Son fuentes OFL servidas desde el propio sitio, sin Google Fonts.
 - **Forma:** esquinas rectas, bordes gruesos y sombras duras.
 

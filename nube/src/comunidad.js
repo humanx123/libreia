@@ -21,7 +21,16 @@ export class Comunidad {
       CREATE TABLE IF NOT EXISTS cuentas (id TEXT PRIMARY KEY, verificador TEXT NOT NULL, creada TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS propuestas (id INTEGER PRIMARY KEY AUTOINCREMENT, autor TEXT, titulo TEXT NOT NULL, texto TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'abierta', creada TEXT NOT NULL, respuesta TEXT);
       CREATE TABLE IF NOT EXISTS votos (propuesta INTEGER NOT NULL, cuenta TEXT NOT NULL, PRIMARY KEY (propuesta, cuenta));
+      CREATE INDEX IF NOT EXISTS iv_cuenta ON votos(cuenta);
+      CREATE INDEX IF NOT EXISTS ip_autor ON propuestas(autor, creada);
     `);
+    // Versión de la cuenta: sube al cambiar la contraseña, y las sesiones anteriores dejan de valer.
+    try {
+      this.sql.exec("ALTER TABLE cuentas ADD COLUMN ver INTEGER NOT NULL DEFAULT 0");
+    } catch {
+      /* la columna ya existe */
+    }
+    this.cacheLista = null; // lista de propuestas (sin datos de cuentas), 30 s
   }
 
   uno(q, ...a) {
@@ -36,13 +45,25 @@ export class Comunidad {
 
     // ---- cuentas
     if (ruta === "/cuentas/registrar") {
-      if (this.uno("SELECT id FROM cuentas WHERE id = ?", datos.id)) return r({ error: "Ya existe una cuenta con ese correo" }, 409);
+      if (!validoHex(datos.id, 32) || !validoHex(datos.verificador, 64)) return r({ error: "Datos inválidos" }, 400);
+      // Mensaje genérico: no confirma a terceros si un correo tiene cuenta.
+      if (this.uno("SELECT id FROM cuentas WHERE id = ?", datos.id)) return r({ error: "No se pudo crear la cuenta. Si ya tienes una con ese correo, usa «Entrar»." }, 409);
       this.sql.exec("INSERT INTO cuentas (id, verificador, creada) VALUES (?, ?, ?)", datos.id, datos.verificador, hoy());
       return r({ ok: true });
     }
     if (ruta === "/cuentas/verificar") {
-      const c = this.uno("SELECT verificador FROM cuentas WHERE id = ?", datos.id);
-      return r({ ok: !!c && igual(c.verificador, datos.verificador), existe: !!c });
+      const c = this.uno("SELECT verificador, ver FROM cuentas WHERE id = ?", datos.id);
+      const ok = !!c && igual(c.verificador, datos.verificador);
+      return r({ ok, ver: ok ? c.ver : undefined });
+    }
+    if (ruta === "/cuentas/salir") {
+      // Cerrar sesión en todos los dispositivos: sube la versión y las sesiones emitidas dejan de valer.
+      this.sql.exec("UPDATE cuentas SET ver = ver + 1 WHERE id = ?", datos.id);
+      return r({ ok: true });
+    }
+    if (ruta === "/cuentas/version") {
+      const c = this.uno("SELECT ver FROM cuentas WHERE id = ?", datos.id);
+      return r({ ver: c ? c.ver : null });
     }
     if (ruta === "/cuentas/existe") {
       return r({ ok: !!this.uno("SELECT id FROM cuentas WHERE id = ?", datos.id) });
@@ -50,8 +71,9 @@ export class Comunidad {
     if (ruta === "/cuentas/cambiar") {
       const c = this.uno("SELECT verificador FROM cuentas WHERE id = ?", datos.id);
       if (!c || !igual(c.verificador, datos.verificadorActual)) return r({ error: "La contraseña actual no es correcta" }, 401);
-      this.sql.exec("UPDATE cuentas SET verificador = ? WHERE id = ?", datos.verificadorNuevo, datos.id);
-      return r({ ok: true });
+      if (!validoHex(datos.verificadorNuevo, 64)) return r({ error: "Datos inválidos" }, 400);
+      this.sql.exec("UPDATE cuentas SET verificador = ?, ver = ver + 1 WHERE id = ?", datos.verificadorNuevo, datos.id);
+      return r({ ok: true, ver: this.uno("SELECT ver FROM cuentas WHERE id = ?", datos.id).ver });
     }
     if (ruta === "/cuentas/borrar") {
       const c = this.uno("SELECT verificador FROM cuentas WHERE id = ?", datos.id);
@@ -60,6 +82,7 @@ export class Comunidad {
       this.sql.exec("DELETE FROM votos WHERE cuenta = ?", datos.id);
       this.sql.exec("UPDATE propuestas SET autor = NULL WHERE autor = ?", datos.id);
       this.sql.exec("DELETE FROM cuentas WHERE id = ?", datos.id);
+      this.cacheLista = null;
       return r({ ok: true });
     }
     if (ruta === "/cuentas/contar") {
@@ -71,21 +94,26 @@ export class Comunidad {
 
     // ---- propuestas
     if (ruta === "/propuestas" && request.method === "GET") {
-      const cuenta = datos.cuenta || "";
-      const lista = this.sql
-        .exec(
-          `SELECT p.id, p.titulo, p.texto, p.estado, p.creada, p.respuesta,
-                  (SELECT COUNT(*) FROM votos v WHERE v.propuesta = p.id) AS votos,
-                  EXISTS(SELECT 1 FROM votos v WHERE v.propuesta = p.id AND v.cuenta = ?) AS mio,
-                  (p.autor IS NOT NULL AND p.autor = ?) AS propia
-           FROM propuestas p ORDER BY (p.estado IN ('hecha','descartada')), votos DESC, p.id DESC LIMIT 200`,
-          cuenta, cuenta,
-        )
-        .toArray()
-        .map((p) => ({ ...p, mio: !!p.mio, propia: !!p.propia }));
+      const cuenta = typeof datos.cuenta === "string" ? datos.cuenta : "";
+      // La lista común se calcula como mucho cada 30 s (leer todo en cada visita agotaría la cuota de lecturas).
+      if (!this.cacheLista || Date.now() - this.cacheLista.t > 30000) {
+        this.cacheLista = {
+          t: Date.now(),
+          filas: this.sql
+            .exec(
+              `SELECT p.id, p.titulo, p.texto, p.estado, p.creada, p.respuesta, p.autor,
+                      (SELECT COUNT(*) FROM votos v WHERE v.propuesta = p.id) AS votos
+               FROM propuestas p ORDER BY (p.estado IN ('hecha','descartada')), votos DESC, p.id DESC LIMIT 200`,
+            )
+            .toArray(),
+        };
+      }
+      const misVotos = cuenta ? new Set(this.sql.exec("SELECT propuesta FROM votos WHERE cuenta = ?", cuenta).toArray().map((v) => v.propuesta)) : new Set();
+      const lista = this.cacheLista.filas.map(({ autor, ...p }) => ({ ...p, mio: misVotos.has(p.id), propia: !!cuenta && autor === cuenta }));
       return r({ propuestas: lista });
     }
     if (ruta === "/propuestas" && request.method === "POST") {
+      if (typeof datos.titulo !== "string" || (datos.texto != null && typeof datos.texto !== "string")) return r({ error: "Datos inválidos" }, 400);
       const titulo = limpiar(datos.titulo, 120);
       const texto = limpiar(datos.texto, 1000);
       if (titulo.length < 6) return r({ error: "El título debe tener al menos 6 caracteres" }, 400);
@@ -95,31 +123,38 @@ export class Comunidad {
       this.sql.exec("INSERT INTO propuestas (autor, titulo, texto, creada) VALUES (?, ?, ?, ?)", datos.cuenta, titulo, texto, hoy());
       const id = this.uno("SELECT last_insert_rowid() AS id").id;
       this.sql.exec("INSERT OR IGNORE INTO votos (propuesta, cuenta) VALUES (?, ?)", id, datos.cuenta);
+      this.cacheLista = null;
       return r({ ok: true, id });
     }
     if (ruta === "/propuestas/votar") {
       const id = Number(datos.propuesta);
+      if (!Number.isSafeInteger(id) || id <= 0) return r({ error: "Propuesta inválida" }, 400);
       if (!this.uno("SELECT id FROM propuestas WHERE id = ?", id)) return r({ error: "La propuesta no existe" }, 404);
       if (!this.uno("SELECT id FROM cuentas WHERE id = ?", datos.cuenta)) return r({ error: "Cuenta no encontrada" }, 401);
       const ya = this.uno("SELECT 1 AS x FROM votos WHERE propuesta = ? AND cuenta = ?", id, datos.cuenta);
       if (ya) this.sql.exec("DELETE FROM votos WHERE propuesta = ? AND cuenta = ?", id, datos.cuenta);
       else this.sql.exec("INSERT INTO votos (propuesta, cuenta) VALUES (?, ?)", id, datos.cuenta);
+      this.cacheLista = null;
       return r({ ok: true, mio: !ya });
     }
     // Moderación (solo desde el panel de administración).
     if (ruta === "/propuestas/estado") {
       if (!ESTADOS.includes(datos.estado)) return r({ error: "Estado inválido" }, 400);
       this.sql.exec("UPDATE propuestas SET estado = ?, respuesta = ? WHERE id = ?", datos.estado, limpiar(datos.respuesta, 500) || null, Number(datos.propuesta));
+      this.cacheLista = null;
       return r({ ok: true });
     }
     if (ruta === "/propuestas/borrar") {
       this.sql.exec("DELETE FROM votos WHERE propuesta = ?", Number(datos.propuesta));
       this.sql.exec("DELETE FROM propuestas WHERE id = ?", Number(datos.propuesta));
+      this.cacheLista = null;
       return r({ ok: true });
     }
     return r({ error: "no encontrado" }, 404);
   }
 }
+
+const validoHex = (v, n) => typeof v === "string" && v.length === n && /^[0-9a-f]+$/.test(v);
 
 function limpiar(t, max) {
   return String(t || "").replace(/\s+/g, " ").trim().slice(0, max);

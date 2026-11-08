@@ -8,8 +8,8 @@ android {
         applicationId "app.libreia.chat"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "0.8.0"
+        versionCode 15
+        versionName "0.9.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,8 +17,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Firma de publicación: se lee de android/keystore.properties (fuera de git).
+    def propsFirma = rootProject.file("keystore.properties")
+    signingConfigs {
+        if (propsFirma.exists()) {
+            release {
+                def p = new Properties()
+                propsFirma.withInputStream { p.load(it) }
+                storeFile file(p["storeFile"])
+                storePassword p["storePassword"]
+                keyAlias p["keyAlias"]
+                keyPassword p["keyPassword"]
+            }
+        }
+    }
     buildTypes {
         release {
+            if (propsFirma.exists()) signingConfig signingConfigs.release
+            debuggable false
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

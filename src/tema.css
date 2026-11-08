@@ -15,7 +15,7 @@
 :root{
   --bg:#090b10;--panel:#11151e;--panel2:#181e29;--line:#2c3443;
   --ink:#efe8d8;--paper:#efe8d8;--muted:#9aa2b1;
-  --accent:#53e8d4;--cyan:#53e8d4;--red:#ff4b2b;--amber:#e8c18b;--leaf:#1f4d43;
+  --accent:#53e8d4;--cyan:#53e8d4;--magenta:#ff2bd1;--red:#ff4b2b;--amber:#e8c18b;--leaf:#1f4d43;
   --display:"Anton",Impact,"Arial Narrow Bold",sans-serif;
   --mono:"Space Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -54,6 +54,7 @@ button:disabled{opacity:.55;cursor:wait}
 /* ---------- barra superior ---------- */
 .topbar{background:var(--bg);border-bottom:3px solid var(--paper);backdrop-filter:none}
 .topbar h1{font:400 24px/1 var(--display);text-transform:uppercase;letter-spacing:.02em}
+.topbar h1 b{font-weight:400;color:var(--magenta)}
 .menu-btn{padding:8px 11px}
 .model-picker{flex:0 0 auto;width:auto;min-width:0;max-width:150px;border:2px solid var(--paper);background:var(--bg);color:var(--paper);font:700 11px var(--mono);text-transform:uppercase;padding:8px 6px}
 .model-picker option{background:var(--bg);color:var(--paper)}
@@ -62,8 +63,7 @@ button:disabled{opacity:.55;cursor:wait}
 .sidebar{background:#0b0d12;border-right:3px solid var(--paper)}
 .brand{letter-spacing:.02em}
 .brand strong{font:400 26px/1 var(--display)}
-.brand strong b,.auth-brand h1 b{color:var(--cyan);font-weight:400}
-.brand-logo{background:var(--paper);border:2px solid var(--paper);box-shadow:3px 3px 0 var(--cyan)}
+.brand strong b,.auth-brand h1 b,.welcome-mark b,.hero-logo b{color:var(--magenta);font-weight:400}
 .hide-btn{padding:6px 9px;font-size:11px;box-shadow:3px 3px 0 var(--paper)}
 .new-chat{text-align:center;padding:12px}
 .side-label{font:700 10px var(--mono);color:var(--cyan);letter-spacing:.1em}
@@ -77,7 +77,7 @@ button:disabled{opacity:.55;cursor:wait}
 .dot{box-shadow:none}
 
 /* ---------- bienvenida ---------- */
-.welcome-mark{background:var(--paper);border:3px solid var(--paper);box-shadow:8px 8px 0 var(--cyan);transform:rotate(3deg);margin-bottom:22px}
+.welcome-mark{display:inline-block;width:auto;height:auto;margin:0 0 24px;padding:.12em .22em .06em;font:400 46px/1 var(--display);color:var(--paper);background:var(--bg);border:3px solid var(--paper);box-shadow:7px 7px 0 var(--cyan);transform:rotate(-2deg);object-fit:initial}
 .welcome-kicker{margin:0 0 6px;font:700 11px var(--mono);color:var(--cyan);text-transform:uppercase;letter-spacing:.1em}
 .welcome h2{font:400 clamp(34px,7vw,52px)/.95 var(--display);text-transform:uppercase;margin:6px 0 12px}
 .welcome h2 span{background:var(--cyan);color:var(--bg);padding:0 .08em;box-shadow:.06em .06em 0 var(--paper)}
@@ -157,7 +157,6 @@ dialog::backdrop{background:#000c;backdrop-filter:none}
   linear-gradient(90deg,#141923 1px,transparent 1px) 0 0/48px 48px,var(--bg)}
 .auth-card{gap:16px}
 .auth-brand{gap:16px;margin:8px 0 6px}
-.auth-brand img{width:68px;height:68px;background:var(--paper);border:3px solid var(--paper);box-shadow:6px 6px 0 var(--cyan);transform:rotate(-3deg)}
 .auth-brand h1{font:400 52px/.9 var(--display);text-transform:uppercase;letter-spacing:.01em}
 .auth-brand p{font:700 11px var(--mono);color:var(--cyan);text-transform:uppercase;letter-spacing:.06em;margin-top:6px}
 .auth-tabs{border:3px solid var(--paper);padding:0;gap:0;background:var(--bg)}
@@ -175,7 +174,7 @@ dialog::backdrop{background:#000c;backdrop-filter:none}
 .page-inner{max-width:820px}
 .page h2{font:400 clamp(30px,5vw,44px)/.95 var(--display);text-transform:uppercase}
 .hero{text-align:left;padding:28px 0 6px}
-.hero-logo{width:96px;height:96px;background:var(--paper);border:3px solid var(--paper);box-shadow:6px 6px 0 var(--cyan);transform:rotate(3deg);margin-bottom:22px}
+.hero-logo{display:inline-block;width:auto;height:auto;margin-bottom:24px;padding:.1em .2em .04em;font:400 34px/1 var(--display);color:var(--paper);background:var(--bg);border:3px solid var(--paper);box-shadow:6px 6px 0 var(--cyan);transform:rotate(2deg)}
 .hero-kicker{margin:0 0 10px;font:700 11px var(--mono);color:var(--cyan);text-transform:uppercase;letter-spacing:.08em}
 .hero h1.hero-title{margin:0;font:400 clamp(42px,9vw,78px)/.9 var(--display);text-transform:uppercase;letter-spacing:0}
 .hero-title span{display:block}

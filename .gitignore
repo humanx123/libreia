@@ -34,3 +34,8 @@ README-local-backend.md
 libreia-chat-assets.tar.gz
 .github/
 __pycache__/
+
+# Firma de la APK
+android/keystore.properties
+*.keystore
+*.jks

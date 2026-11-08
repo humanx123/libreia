@@ -19,11 +19,13 @@ export const AJUSTES_POR_DEFECTO = {
   requerirCuenta: true,
   invitados: true,
   mensajesInvitado: 10,
+  mensajesDiaCuenta: 300,
   resultadosWeb: 5,
 };
 
 const TTL_MS = 30000;
 let cache = null;
+let ultimoBueno = null;
 
 export function invalidarMotor() {
   cache = null;
@@ -55,10 +57,16 @@ export async function cargarMotor(env) {
       else clavesPanel = await descifrar(env.MASTER_KEY, cl);
     }
   } catch (e) {
-    // Se sigue con lo que haya (catálogo por defecto y secretos), pero el fallo queda visible.
+    // Si ya hubo una configuración buena en este isolate, se sigue usando (mantenimiento, límites e
+    // instrucciones no vuelven a los de fábrica por un fallo pasajero del KV). El fallo queda visible.
     avisos.push(`No se pudo leer la configuración del panel: ${e.message}`);
     console.error("cargarMotor:", e);
+    if (ultimoBueno) {
+      ({ catalogo, ajustes, personalizado } = ultimoBueno);
+      clavesPanel = ultimoBueno.clavesPanel;
+    }
   }
+  if (!avisos.length) ultimoBueno = { catalogo, ajustes, personalizado, clavesPanel };
 
   const origen = {};
   for (const k of Object.keys(clavesSecretos)) origen[k] = "secreto";

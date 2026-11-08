@@ -22,7 +22,15 @@ const MODES = [
 
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+// Element lookup that ignores anything inside a chat message: rendered replies can never stand in
+// for an app control (a donation address, the prompt box, a password field…).
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  // parentElement: the #messages container itself is an app element (it has the .messages class).
+  const injected = (x: Element) => !!x.parentElement?.closest(".messages");
+  if (!el || !injected(el)) return el as T;
+  return [...document.querySelectorAll<HTMLElement>("#" + CSS.escape(id))].find((x) => !injected(x)) as T;
+};
 const safeUrl = (u: string) => (/^https?:\/\//i.test(u) ? u : "#");
 const makeId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -41,18 +49,58 @@ let view: View = "chat";
 
 // Chats are stored per account on this device (shared devices keep them apart).
 const chatsKey = () => `libreia.chats.${session.ns}`;
-function loadChats() {
+// ---------------------------------------------------------------- stored data validation
+// Everything read from storage or from an imported file is rebuilt field by field: a malformed or
+// hostile file can neither break the app at startup nor inject HTML.
+const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
+function cleanSources(v: unknown): Source[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((f) => f && typeof f === "object" && Number.isInteger(f.n) && f.n >= 1 && f.n <= 99 && typeof f.url === "string" && /^https?:\/\//i.test(f.url))
+    .slice(0, 20)
+    .map((f) => ({ n: f.n, url: str(f.url, 2000), titulo: str(f.titulo, 200) || str(f.url, 80), dominio: str(f.dominio, 120) }));
+  return out.length ? out : undefined;
+}
+function cleanMeta(v: any): Meta | undefined {
+  if (!v || typeof v !== "object" || typeof v.modo !== "string") return undefined;
+  return { modo: str(v.modo, 20), proveedor: str(v.proveedor, 40) || undefined, modelo: str(v.modelo, 120) || undefined };
+}
+function cleanChats(v: unknown): ChatSession[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((c) => c && typeof c === "object" && typeof c.id === "string" && c.id.length <= 80 && Array.isArray(c.messages))
+    .map((c) => ({
+      id: c.id,
+      title: str(c.title, 80) || "Chat",
+      updatedAt: Number.isFinite(Number(c.updatedAt)) ? Number(c.updatedAt) : Date.now(),
+      messages: c.messages
+        .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+        .map((m: any) => ({
+          role: m.role,
+          content: m.content.slice(0, 200000),
+          ...(m.error ? { error: true } : {}),
+          ...(m.cta ? { cta: true } : {}),
+          ...(cleanSources(m.fuentes) ? { fuentes: cleanSources(m.fuentes) } : {}),
+          ...(cleanMeta(m.meta) ? { meta: cleanMeta(m.meta) } : {}),
+        })),
+    }));
+}
+const readJson = (key: string): unknown => {
   try {
-    chats = JSON.parse(localStorage.getItem(chatsKey()) || "[]");
+    return JSON.parse(localStorage.getItem(key) || "null");
   } catch {
-    chats = [];
+    return null;
   }
+};
+
+function loadChats() {
+  chats = cleanChats(readJson(chatsKey()));
   // Chats from before accounts existed go to the first account that signs in on this device.
   const legacy = localStorage.getItem("libreia.chats");
   if (legacy) {
     try {
-      const old: ChatSession[] = JSON.parse(legacy);
-      chats = [...old.filter((o) => o.messages?.length && !chats.some((c) => c.id === o.id)), ...chats];
+      const old = cleanChats(JSON.parse(legacy));
+      chats = [...old.filter((o) => o.messages.length && !chats.some((c) => c.id === o.id)), ...chats];
     } catch {
       /* ignore broken legacy data */
     }
@@ -63,11 +111,31 @@ function loadChats() {
   messages = chats.find((c) => c.id === chatId)!.messages;
   saveChats();
 }
-function saveChats() {
-  if (!session.ns) return;
-  localStorage.setItem(chatsKey(), JSON.stringify(chats));
-  localStorage.setItem(`${chatsKey()}.active`, chatId);
+let storageWarned = false;
+/** Saves the chats; returns false (and warns once) if the device storage is full. */
+function saveChats(): boolean {
+  if (!session.ns) return true;
+  try {
+    localStorage.setItem(chatsKey(), JSON.stringify(chats));
+    localStorage.setItem(`${chatsKey()}.active`, chatId);
+    storageWarned = false;
+    return true;
+  } catch {
+    if (!storageWarned) {
+      storageWarned = true;
+      alert("El almacenamiento de este dispositivo está lleno: los últimos mensajes no se pudieron guardar.\n\nVe a Configuración → Exportar y luego borra chats antiguos.");
+    }
+    return false;
+  }
 }
+// Another tab changed the chats: reload them instead of overwriting them later.
+window.addEventListener("storage", (e) => {
+  if (e.key === chatsKey() && !sending && session.active) {
+    loadChats();
+    renderChatList();
+    renderMessages();
+  }
+});
 function newChat(render = true) {
   const empty = chats.find((c) => !c.messages.length);
   if (empty) chatId = empty.id;
@@ -88,7 +156,17 @@ function newChat(render = true) {
 
 // ---------------------------------------------------------------- markdown
 marked.setOptions({ gfm: true, breaks: true });
+// Only presentational markup: no forms, inputs, styles, ids or data attributes in AI replies.
+const PURIFY = {
+  ALLOWED_TAGS: ["p", "br", "hr", "strong", "b", "em", "i", "del", "s", "code", "pre", "blockquote", "ul", "ol", "li", "a",
+    "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "sup", "sub", "span"],
+  ALLOWED_ATTR: ["href", "title", "start", "align", "class"],
+  ALLOW_DATA_ATTR: false,
+  SANITIZE_NAMED_PROPS: true,
+};
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  const cls = node.getAttribute("class");
+  if (cls && !/^language-[\w+-]{1,30}$/.test(cls)) node.removeAttribute("class");
   if (node.tagName === "A") {
     const href = node.getAttribute("href") || "";
     if (!/^https?:\/\//i.test(href)) node.removeAttribute("href");
@@ -99,20 +177,44 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 });
 function renderMarkdown(text: string, fuentes?: Source[]): string {
   // Some models cite as 【1】 or 【1†L3-L5】: normalise to [1].
-  let src = text.replace(/【(\d{1,2})(?:†[^】]*)?】/g, "[$1]");
-  if (fuentes?.length) {
-    const byN = new Map(fuentes.map((f) => [f.n, f]));
-    src = src.replace(/\[(\d{1,2})\](?!\()/g, (m, n) => {
-      const f = byN.get(Number(n));
-      return f ? `[\\[${n}\\]](${safeUrl(f.url).replace(/\)/g, "%29")})` : m;
-    });
+  const src = text.replace(/【(\d{1,2})(?:†[^】]*)?】/g, "[$1]");
+  const clean = DOMPurify.sanitize(marked.parse(src, { async: false }) as string, PURIFY) as unknown as string;
+  if (!fuentes?.length) return clean;
+  // Citations become links AFTER sanitizing, only in plain text (never inside code or existing links).
+  const byN = new Map(fuentes.map((f) => [f.n, f]));
+  const tpl = document.createElement("template");
+  tpl.innerHTML = clean;
+  const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) {
+    const t = walker.currentNode as Text;
+    if (/\[\d{1,2}\]/.test(t.data) && !t.parentElement?.closest("pre, code, a")) nodes.push(t);
   }
-  return DOMPurify.sanitize(marked.parse(src, { async: false }) as string);
+  for (const t of nodes) {
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of t.data.matchAll(/\[(\d{1,2})\]/g)) {
+      const f = byN.get(Number(m[1]));
+      if (!f) continue;
+      frag.append(t.data.slice(last, m.index));
+      const a = document.createElement("a");
+      a.href = safeUrl(f.url);
+      a.className = "cita";
+      a.target = "_blank";
+      a.rel = "noopener noreferrer nofollow";
+      a.textContent = `[${m[1]}]`;
+      frag.append(a);
+      last = m.index! + m[0].length;
+    }
+    frag.append(t.data.slice(last));
+    t.replaceWith(frag);
+  }
+  return tpl.innerHTML;
 }
 function renderSources(fuentes?: Source[]): string {
   if (!fuentes?.length) return "";
   return `<div class="sources"><div class="sources-title">Fuentes consultadas</div><ol>${fuentes
-    .map((f) => `<li value="${f.n}"><a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(f.titulo)}</a><span>${esc(f.dominio)}</span></li>`)
+    .map((f) => `<li value="${Number(f.n) | 0}"><a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(f.titulo)}</a><span>${esc(f.dominio)}</span></li>`)
     .join("")}</ol></div>`;
 }
 const modeLabel = (id: string) => MODES.find((m) => m.id === id)?.label || id;
@@ -121,7 +223,7 @@ const modeLabel = (id: string) => MODES.find((m) => m.id === id)?.label || id;
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <section id="authView" class="auth-view hidden">
   <div class="auth-card">
-    <div class="auth-brand"><img src="/libreia-logo.png" alt=""><div><h1>Libre<b>IA</b></h1><p>// La IA es un bien común</p></div></div>
+    <div class="auth-brand"><div><h1>Libre<b>IA</b></h1><p>// La IA es un bien común</p></div></div>
     <div class="auth-tabs" role="tablist">
       <button type="button" data-auth-tab="registro" class="active">Crear cuenta</button>
       <button type="button" data-auth-tab="entrar">Entrar</button>
@@ -153,7 +255,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <div id="backdrop" class="backdrop"></div>
   <aside class="sidebar" id="sidebar" aria-label="Menú">
     <div class="sidebar-head">
-      <div class="brand"><img class="brand-logo" src="/libreia-logo.png" alt=""><strong>LIBRE<b>IA</b></strong></div>
+      <div class="brand"><strong>LIBRE<b>IA</b></strong></div>
       <button id="hideSidebar" class="hide-btn" type="button" title="Ocultar el menú">⟨ Ocultar</button>
     </div>
     <button id="newChat" class="new-chat" type="button">＋ Nuevo chat</button>
@@ -320,7 +422,9 @@ function showView(v: View) {
   $("aboutView").classList.toggle("hidden", v !== "about");
   $("communityView").classList.toggle("hidden", v !== "community");
   $("modelPicker").classList.toggle("hidden", v !== "chat");
-  $("viewTitle").textContent = v === "about" ? "¿Qué es LibreIA?" : v === "community" ? "Comunidad" : "LibreIA";
+  if (v === "about") $("viewTitle").textContent = "¿Qué es LibreIA?";
+  else if (v === "community") $("viewTitle").textContent = "Comunidad";
+  else $("viewTitle").innerHTML = "Libre<b>IA</b>";
   shell.classList.toggle("no-session", !loggedIn);
   applyGuestUi();
   if (v === "about") renderAbout();
@@ -332,7 +436,7 @@ document.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
   // In the APK, external links (repo, email) go to the system browser / mail app.
   const ext = t.closest<HTMLAnchorElement>("a[href^='mailto:'], a[data-external]");
-  if (ext && IS_NATIVE) {
+  if (ext && IS_NATIVE && /^(https?|mailto):/i.test(ext.href)) {
     e.preventDefault();
     window.location.href = ext.href;
     return;
@@ -436,7 +540,7 @@ function startGuest() {
   sendEvent("prueba_iniciada");
   startApp();
 }
-$("guestBtn").addEventListener("click", startGuest);
+$("guestBtn").addEventListener("click", () => (session.guest ? showView("chat") : startGuest()));
 $("exitGuest").addEventListener("click", () => {
   if (confirm("¿Salir del modo prueba? Tus chats de prueba se quedan en este dispositivo.")) logout();
 });
@@ -454,8 +558,8 @@ function goToAuth(mode: "registro" | "entrar") {
 function adoptGuestChats(ns: string) {
   const from = `libreia.chats.${GUEST_NS}`;
   try {
-    const guestChats: ChatSession[] = JSON.parse(localStorage.getItem(from) || "[]").filter((c: ChatSession) => c.messages?.length);
-    const mine: ChatSession[] = JSON.parse(localStorage.getItem(`libreia.chats.${ns}`) || "[]");
+    const guestChats = cleanChats(readJson(from)).filter((c) => c.messages.length);
+    const mine = cleanChats(readJson(`libreia.chats.${ns}`));
     if (guestChats.length) localStorage.setItem(`libreia.chats.${ns}`, JSON.stringify([...guestChats.filter((g) => !mine.some((m) => m.id === g.id)), ...mine]));
     localStorage.removeItem(from);
     localStorage.removeItem(`${from}.active`);
@@ -477,23 +581,26 @@ function applyGuestUi() {
   if (guestQuota) $("guestQuota").textContent = `${guestQuota} mensajes por hora`;
 }
 /** Reads the public trial quota (also tells whether trial mode is enabled at all). */
-async function loadTrialInfo() {
+async function loadTrialInfo(): Promise<boolean> {
   try {
     const t = await api("/transparencia", { auth: "app" });
     const p = t?.prueba;
     if (p && p.activa === false) {
       $("guestBox").classList.add("hidden");
-      return;
+      return false;
     }
     guestQuota = Number(p?.mensajesPorHora) || null;
     if (guestQuota) $("guestNote").textContent = `Sin correo ni contraseña: hasta ${guestQuota} mensajes por hora, sin Fusión ni votos. Tus chats quedan solo en este dispositivo.`;
     applyGuestUi();
+    return true;
   } catch {
-    /* the button stays; the server answers with the real limit if needed */
+    return true; // the button stays; the server answers with the real limit if needed
   }
 }
 
 function logout() {
+  // Closing the session also invalidates the token on the server (in case it was copied).
+  if (session.token) api("/cuenta/salir", { body: {}, timeoutMs: 8000 }).catch(() => {});
   session.clear();
   chats = [];
   messages = [];
@@ -505,7 +612,7 @@ function logout() {
 // ---------------------------------------------------------------- chat rendering
 function renderMessages() {
   if (!messages.length) {
-    messagesEl.innerHTML = `<div class="welcome"><img class="welcome-mark" src="/libreia-logo.png" alt=""><p class="welcome-kicker">// IA libre · neutral · de la comunidad</p><h2>¿En qué te <span>ayudo</span>?</h2>
+    messagesEl.innerHTML = `<div class="welcome"><div class="welcome-mark" aria-hidden="true">LIBRE<b>IA</b></div><p class="welcome-kicker">// IA libre · neutral · de la comunidad</p><h2>¿En qué te <span>ayudo</span>?</h2>
       <p>Pregunta lo que quieras. LibreIA busca en la web y cita sus fuentes.</p>
       <div class="suggestions">
         <button type="button" data-suggest="Explícame las distintas posturas sobre la renta básica universal">Posturas sobre la renta básica</button>
@@ -517,10 +624,15 @@ function renderMessages() {
   messagesEl.innerHTML =
     messages
       .map((m) => {
-        const body =
-          m.role === "user" || m.error
-            ? esc(m.content).replace(/\n/g, "<br>")
-            : renderMarkdown(m.content, m.fuentes) + renderSources(m.fuentes);
+        let body: string;
+        try {
+          body =
+            m.role === "user" || m.error
+              ? esc(m.content).replace(/\n/g, "<br>")
+              : renderMarkdown(m.content, m.fuentes) + renderSources(m.fuentes);
+        } catch {
+          body = esc(m.content).replace(/\n/g, "<br>"); // a broken message never breaks the whole chat
+        }
         const meta = m.meta && m.role === "assistant" && !m.error
           ? `<div class="msg-meta">${esc(modeLabel(m.meta.modo))}${m.meta.proveedor ? ` · respondió ${esc(m.meta.proveedor)}${m.meta.modelo ? ` / ${esc(m.meta.modelo)}` : ""}` : ""}</div>`
           : "";
@@ -610,25 +722,26 @@ async function sendMessage(prompt: string) {
   sending = true;
   $("send").classList.add("busy");
   const targetChatId = chatId;
-  const target = messages;
-  const chat = chats.find((c) => c.id === targetChatId)!;
-  target.push({ role: "user", content: prompt });
-  if (chat.title === "Nuevo chat") chat.title = prompt.slice(0, 40);
-  chat.updatedAt = Date.now();
-  pendingChatId = targetChatId;
-  saveChats();
-  renderMessages();
-  renderChatList();
-
+  const usedModel = model;
+  // The chat is looked up again when the reply arrives: signing in/up meanwhile reloads the chats
+  // (guest chats move to the account), so the reply goes to the chat object that exists then.
   const reply = (m: Message) => {
-    target.push(m);
     const c = chats.find((x) => x.id === targetChatId);
-    if (!c) return; // deleted while waiting
+    if (!c) return; // deleted (or another account) while waiting
+    c.messages.push(m);
     c.updatedAt = Date.now();
     saveChats();
   };
-  const usedModel = model;
   try {
+    const chat = chats.find((c) => c.id === targetChatId)!;
+    chat.messages.push({ role: "user", content: prompt });
+    if (chat.title === "Nuevo chat") chat.title = prompt.slice(0, 40);
+    chat.updatedAt = Date.now();
+    pendingChatId = targetChatId;
+    saveChats();
+    renderMessages();
+    renderChatList();
+    const target = chat.messages;
     const r = await api("/chat/completions", {
       body: {
         model: usedModel,
@@ -645,8 +758,8 @@ async function sendMessage(prompt: string) {
       reply({
         role: "assistant",
         content: cut ? `${content}\n\n⚠️ *(respuesta cortada por longitud)*` : content,
-        fuentes: Array.isArray(r?.libreia?.fuentes) ? r.libreia.fuentes : [],
-        meta: { modo: usedModel, proveedor: r?.libreia?.proveedor, modelo: r?.libreia?.modelo },
+        fuentes: cleanSources(r?.libreia?.fuentes),
+        meta: cleanMeta({ modo: usedModel, proveedor: r?.libreia?.proveedor, modelo: r?.libreia?.modelo }),
       });
     } else {
       reply({ role: "assistant", content: "❌ Respuesta inesperada del servidor (sin texto).", error: true });
@@ -837,24 +950,17 @@ $("importFile").addEventListener("change", async (e) => {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
   try {
+    if (file.size > 20 * 1024 * 1024) throw new Error("el archivo es demasiado grande (máx. 20 MB)");
     const data = JSON.parse(await file.text());
-    const incoming: ChatSession[] = (Array.isArray(data) ? data : data.chats || []).filter(
-      (c: any) => c && typeof c.id === "string" && Array.isArray(c.messages),
-    );
-    let added = 0;
-    for (const c of incoming) {
-      if (chats.some((x) => x.id === c.id)) continue;
-      chats.push({
-        id: c.id,
-        title: String(c.title || "Chat importado").slice(0, 80),
-        updatedAt: Number(c.updatedAt) || Date.now(),
-        messages: c.messages
-          .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-          .map((m: any) => ({ role: m.role, content: m.content, error: !!m.error, fuentes: Array.isArray(m.fuentes) ? m.fuentes : undefined, meta: m.meta })),
-      });
-      added++;
+    const incoming = cleanChats(Array.isArray(data) ? data : data?.chats);
+    const before = chats;
+    const nuevos = incoming.filter((c) => !before.some((x) => x.id === c.id));
+    const added = nuevos.length;
+    chats = [...before, ...nuevos];
+    if (!saveChats()) {
+      chats = before; // nothing half-imported
+      throw new Error("no hay espacio en el dispositivo");
     }
-    saveChats();
     renderChatList();
     $("settingsStatus").textContent = `✓ ${added} chat(s) importados${incoming.length - added ? ` (${incoming.length - added} ya existían)` : ""}.`;
   } catch (ex) {
@@ -887,7 +993,9 @@ $("passForm").addEventListener("submit", async (e) => {
   try {
     const a = await deriveCredentials(email, old);
     const b = await deriveCredentials(email, nw);
-    await api("/cuenta/contrasena", { body: { correoHash: a.correoHash, claveActual: a.clave, claveNueva: b.clave }, timeoutMs: 20000 });
+    const r = await api<{ sesion?: string }>("/cuenta/contrasena", { body: { correoHash: a.correoHash, claveActual: a.clave, claveNueva: b.clave }, timeoutMs: 20000 });
+    // The server closes every other session; this device gets a fresh one.
+    if (r.sesion && session.ns) session.save(r.sesion, email, session.ns);
     (e.target as HTMLFormElement).reset();
     st.textContent = "✓ Contraseña cambiada. Guárdala bien: no se puede recuperar.";
   } catch (ex) {
@@ -917,7 +1025,7 @@ supportDialog.addEventListener("click", (e) => {
   const status = $("donStatus");
   const copyBtn = t.closest<HTMLElement>("[data-copy]");
   if (copyBtn) {
-    const text = $(copyBtn.dataset.copy!).textContent?.trim() || "";
+    const text = supportDialog.querySelector("#" + CSS.escape(copyBtn.dataset.copy!))?.textContent?.trim() || "";
     if (COIN_OF[copyBtn.dataset.copy!]) sendEvent(`copiar:${COIN_OF[copyBtn.dataset.copy!]}`);
     copyText(text).then(
       () => (status.textContent = "Dirección copiada."),
@@ -964,9 +1072,15 @@ async function checkConnection() {
 
 // ---------------------------------------------------------------- start
 function startApp() {
-  loadChats();
-  renderChatList();
-  renderMessages();
+  showView("chat"); // first, so a rendering problem can never leave a blank screen
+  try {
+    loadChats();
+    renderChatList();
+    renderMessages();
+  } catch (e) {
+    console.error(e);
+    messagesEl.innerHTML = `<p class="error-text">No se pudieron mostrar tus chats (${esc((e as Error).message)}). Puedes exportarlos en Configuración.</p>`;
+  }
   if (isDesktop() && localStorage.getItem("libreia.menuOculto") !== "si") shell.classList.remove("collapsed");
   showView("chat");
   checkConnection();
@@ -977,10 +1091,15 @@ setAuthMode(session.token ? "entrar" : "registro");
 // Links from the website: ?probar=1 starts trial mode, ?cuenta=registro|entrar opens that tab.
 const params = new URLSearchParams(location.search);
 if (params.has("probar") || params.has("cuenta")) history.replaceState(null, "", location.pathname);
-loadTrialInfo();
+const trial = loadTrialInfo();
 if (session.active) startApp();
-else if (params.has("probar")) startGuest();
-else {
+else if (params.has("probar")) {
+  // Only start trial mode if the server allows it (otherwise show sign-up).
+  showView("chat");
+  trial.then((activa) => {
+    if (activa && !session.active) startGuest();
+  });
+} else {
   if (params.get("cuenta") === "entrar") setAuthMode("entrar");
   showView("chat");
 }

@@ -77,17 +77,18 @@ export class ErrorIA extends Error {
 }
 
 /** Limpia y acota la conversación que manda el cliente. */
-export function prepararMensajes(mensajes, modo, sistemaPersonalizado) {
+export function prepararMensajes(mensajes, modo, sistemaPersonalizado, { maxCaracteres = MAX_CARACTERES } = {}) {
   if (!Array.isArray(mensajes) || !mensajes.length) throw new ErrorIA("Faltan los mensajes", 400, []);
+  const MAX_CARACTERES_PEDIDO = Math.min(maxCaracteres, MAX_CARACTERES);
   const limpios = mensajes
     .filter((m) => m && ["user", "assistant"].includes(m.role) && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role, content: m.content }))
     .slice(-MAX_MENSAJES);
   // Recorta desde el principio hasta caber en el presupuesto de caracteres.
   let total = limpios.reduce((n, m) => n + m.content.length, 0);
-  while (limpios.length > 1 && total > MAX_CARACTERES) total -= limpios.shift().content.length;
+  while (limpios.length > 1 && total > MAX_CARACTERES_PEDIDO) total -= limpios.shift().content.length;
   if (!limpios.length || limpios[limpios.length - 1].role !== "user") throw new ErrorIA("El último mensaje debe ser del usuario", 400, []);
-  if (total > MAX_CARACTERES) limpios[0].content = limpios[0].content.slice(-MAX_CARACTERES);
+  if (total > MAX_CARACTERES_PEDIDO) limpios[0].content = limpios[0].content.slice(-MAX_CARACTERES_PEDIDO);
   const sistema = (typeof sistemaPersonalizado === "string" && sistemaPersonalizado.trim()) || MODOS[modo].sistema;
   // La fecha real evita respuestas del tipo «mis datos llegan hasta 2024».
   const fecha = new Date().toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -214,7 +215,7 @@ function parametros(maxTokens, temperatura) {
  * Recorre la lista de un modo hasta que un proveedor responde.
  * Con stream=true devuelve la Response SSE del proveedor tal cual.
  */
-export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS } = {}) {
+export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS, sinEnfriar = false } = {}) {
   const lista = propio(motor.catalogo.modes, modo) ? motor.catalogo.modes[modo] : null;
   if (!lista) throw new ErrorIA(`Modo desconocido: ${modo}`, 400, []);
   const cuerpo = { messages: mensajes, ...parametros(maxTokens, temperatura), stream };
@@ -224,6 +225,7 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
   if (!candidatos.length) throw new ErrorIA(`No hay proveedores configurados para el modo ${modo}`, 503, intentos);
 
   const limite = Date.now() + presupuestoMs;
+  let fallosDelPedido = 0; // 400/413/422 seguidos: el problema es la petición, no el proveedor
   for (const destino of ordenarPorFrescura(candidatos)) {
     const inicio = Date.now();
     const restante = limite - inicio;
@@ -241,7 +243,11 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
       return { texto, destino, ms: Date.now() - inicio, uso: datos.usage || null, fin: datos.choices?.[0]?.finish_reason || "stop" };
     } catch (e) {
       intentos.push({ proveedor: destino.platform, modelo: destino.model, error: describirError(e), ms: Date.now() - inicio });
-      enfriar(claveDe(destino), e.status || (e.name === "TimeoutError" ? 504 : 502));
+      // Una tarea auxiliar (p. ej. reescribir la consulta con poco tiempo) no castiga al proveedor.
+      if (!sinEnfriar) enfriar(claveDe(destino), e.status || (e.name === "TimeoutError" ? 504 : 502));
+      if ([400, 413, 422].includes(e.status)) {
+        if (++fallosDelPedido >= 2) break; // no gastar la cuota de todos los proveedores en una petición inválida
+      } else fallosDelPedido = 0;
     }
   }
   throw new ErrorIA(`Todos los proveedores del modo ${MODOS[modo]?.nombre || modo} fallaron`, 503, intentos);
@@ -252,9 +258,9 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
  * Si el sintetizador falla, se devuelve la respuesta más completa del panel.
  * Todo cabe en el mismo presupuesto de tiempo que un modo normal.
  */
-export async function fusionar(motor, mensajes) {
+export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS } = {}) {
   const { panel, panelFallback = [], synth } = motor.catalogo.fusion;
-  const limite = Date.now() + PRESUPUESTO_MS;
+  const limite = Date.now() + Math.min(presupuestoMs, PRESUPUESTO_MS);
   const restante = () => limite - Date.now();
 
   // Tres modelos de proveedores configurados; los enfriados ceden su sitio a los de respaldo.

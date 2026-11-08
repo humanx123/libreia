@@ -16,6 +16,7 @@
 <link rel="canonical" href="https://libreia.pages.dev/">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="img/favicon.png">
+<link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preload" href="fonts/anton-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
@@ -24,7 +25,7 @@
 <a class="skip" href="#manifiesto">Saltar al manifiesto</a>
 
 <header class="bar">
-  <a class="bar-brand" href="#top" aria-label="LibreIA, inicio"><img src="img/logo-256.png" alt="" width="40" height="40"><span>LIBRE<b>IA</b></span></a>
+  <a class="bar-brand" href="#top" aria-label="LibreIA, inicio"><span>LIBRE<b>IA</b></span></a>
   <button class="bar-toggle" type="button" aria-expanded="false" aria-controls="nav">MENÚ</button>
   <nav id="nav" class="bar-nav">
     <a href="#manifiesto">Manifiesto</a>
@@ -59,7 +60,7 @@
       <span class="sticker s2">0 chats en el servidor</span>
       <span class="sticker s3">Código libre</span>
     </div>
-    <img class="hero-logo" src="img/logo-256.png" alt="Logo de LibreIA: una persona que emerge de un libro abierto con circuitos" width="256" height="256">
+    <div class="hero-logo" aria-hidden="true"><span>LIBRE</span><b>IA</b></div>
   </section>
 
   <!-- ================= TICKER ================= -->
@@ -132,7 +133,7 @@
     <div class="wrap">
       <p class="label">04 / No nos creas: compruébalo</p>
       <h2 class="h2">Tu correo nunca<br><span class="hl-red">sale de tu mano.</span></h2>
-      <p class="lead">Al crear una cuenta, tu dispositivo transforma el correo y la contraseña en huellas irreversibles. El servidor solo guarda una huella de esas huellas. Por eso <b>no podemos recuperar tu contraseña</b>: tampoco la conocemos. Pruébalo aquí: este cálculo ocurre en tu navegador y <b>esta página no envía nada</b>.</p>
+      <p class="lead">Al crear una cuenta, tu dispositivo transforma el correo y la contraseña en huellas (la contraseña, con 200 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado. Por eso <b>no podemos recuperar tu contraseña</b>: tampoco la conocemos. Pruébalo aquí: este cálculo ocurre en tu navegador y <b>esta página no envía nada</b>.</p>
       <form class="demo" id="demo" autocomplete="off">
         <label>Correo<input id="demoEmail" type="email" placeholder="tu@correo.com" spellcheck="false"></label>
         <label>Contraseña<input id="demoPass" type="password" placeholder="mínimo 10 caracteres"></label>
@@ -179,7 +180,7 @@
         <article class="dl-card dl-apk">
           <p class="tag">Android · APK</p>
           <h3>App para Android</h3>
-          <p>Versión <b>0.8.0</b> · ~6 MB · Android 6 o superior.</p>
+          <p>Versión <b>0.9.0</b> · ~6 MB · Android 6 o superior.</p>
           <a class="btn btn-cyan big" href="https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk" download>Descargar APK ↓</a>
           <ol class="steps">
             <li>Descarga el archivo.</li>
@@ -267,7 +268,7 @@
 </main>
 
 <footer class="foot">
-  <div class="foot-big" aria-hidden="true">LIBREIA</div>
+  <div class="foot-big" aria-hidden="true">LIBRE<b>IA</b></div>
   <div class="foot-row">
     <span>Código libre · <a href="https://github.com/humanx123/libreia/blob/main/LICENSE" rel="noopener">AGPL-3.0-or-later</a></span>
     <span>Sin cookies · sin rastreadores</span>

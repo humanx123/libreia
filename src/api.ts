@@ -4,7 +4,7 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.8.0";
+export const APP_VERSION = "0.9.0";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";
@@ -140,7 +140,9 @@ export function sendEvent(tipo: string) {
 
 // ---------------------------------------------------------------- account crypto
 const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-export const normalizeEmail = (e: string) => e.trim().toLowerCase();
+// Unicode normalisation: the same email/password typed on another keyboard gives the same keys.
+// (ASCII input is unchanged, so existing accounts keep working.)
+export const normalizeEmail = (e: string) => e.normalize("NFKC").trim().toLowerCase();
 
 export async function emailHash(email: string): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("libreia-correo:" + normalizeEmail(email))));
@@ -154,7 +156,7 @@ export async function emailHash(email: string): Promise<string> {
 export async function deriveCredentials(email: string, password: string) {
   const e = normalizeEmail(email);
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const key = await crypto.subtle.importKey("raw", enc.encode(password.normalize("NFC")), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: enc.encode("libreia-clave:" + e), iterations: 200000, hash: "SHA-256" }, key, 256);
   return { correoHash: await emailHash(e), clave: hex(bits) };
 }

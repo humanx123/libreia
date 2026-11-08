@@ -102,7 +102,8 @@ export const HTML = `<!doctype html>
       <label>Mensaje de mantenimiento<input id="aMantMsg" maxlength="300"></label>
       <label class="check"><input id="aCuenta" type="checkbox"> Exigir cuenta para chatear (si se desactiva, también funcionan las versiones antiguas de la app)</label>
       <label class="check"><input id="aInvitados" type="checkbox"> Modo prueba: permitir chatear sin cuenta (sin Fusión, con cupo por IP)</label>
-      <label>Mensajes de prueba por hora y por IP (1–100)<input id="aInvN" type="number" min="1" max="100"></label>
+      <label>Mensajes de prueba por hora y por instalación (1–100)<input id="aInvN" type="number" min="1" max="100"></label>
+      <label>Máximo de mensajes al día por cuenta (10–5000; Fusión cuenta por 4)<input id="aDiaN" type="number" min="10" max="5000"></label>
       <label class="check"><input id="aWeb" type="checkbox"> Búsqueda web en las respuestas (fuentes reales citadas)</label>
       <label>Fuentes por respuesta (1–8)<input id="aWebN" type="number" min="1" max="8"></label>
       <h3>Instrucciones de sistema por modo</h3>
@@ -148,7 +149,7 @@ body{margin:0;color:var(--ink);font:14.5px/1.5 var(--sans);background:linear-gra
 .login{min-height:100dvh;display:grid;place-items:center;padding:16px}
 .login-card{width:min(100%,380px);display:grid;gap:14px;border:3px solid var(--paper)!important;box-shadow:10px 10px 0 var(--accent)}
 .login-card h1{font:400 58px/.9 var(--display);text-transform:uppercase}
-h1,h2,h3{margin:0}h1 span,.top strong span{color:var(--accent)}
+h1,h2,h3{margin:0}h1 span,.top strong span{color:#ff2bd1}
 h2{font:400 30px/1 var(--display);text-transform:uppercase}
 h3{margin:22px 0 10px;font:700 11px var(--mono);color:var(--accent);text-transform:uppercase;letter-spacing:.1em}
 .card{background:var(--panel);border:2px solid var(--line);padding:18px}
@@ -525,7 +526,7 @@ async function cargarAjustes() {
     const s = await traerEstado(), a = s.ajustes;
     $("aLimite").value = a.limitePorMinuto; $("aMant").checked = !!a.mantenimiento; $("aMantMsg").value = a.mensajeMantenimiento || "";
     $("aWeb").checked = a.busquedaWeb !== false; $("aCuenta").checked = a.requerirCuenta !== false; $("aWebN").value = a.resultadosWeb || 5;
-    $("aInvitados").checked = a.invitados !== false; $("aInvN").value = a.mensajesInvitado || 10;
+    $("aInvitados").checked = a.invitados !== false; $("aInvN").value = a.mensajesInvitado || 10; $("aDiaN").value = a.mensajesDiaCuenta || 300;
     $("aSistema").innerHTML = MODOS.map(([id, nombre]) =>
       '<label>' + nombre + '<textarea data-sistema="' + id + '" maxlength="4000" placeholder="' + esc(s.sistemaPorDefecto[id]) + '">' + esc(a.sistema?.[id] || "") + "</textarea></label>").join("");
   } catch (e) { aviso("No se pudieron leer los ajustes: " + e.message, "bad"); }
@@ -536,7 +537,7 @@ $("ajustesForm").addEventListener("submit", (e) => {
   if ($("aMant").checked && !confirm("El modo mantenimiento detiene la app para todos los usuarios. ¿Activarlo?")) return;
   ocupado(e.submitter, async () => {
     try {
-      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, mensajesInvitado: +$("aInvN").value, resultadosWeb: +$("aWebN").value }) });
+      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, mensajesInvitado: +$("aInvN").value, mensajesDiaCuenta: +$("aDiaN").value, resultadosWeb: +$("aWebN").value }) });
       aviso("✓ Ajustes guardados. La app los usa en menos de 30 s.");
     } catch (err) { aviso(err.message, "bad"); }
   });
