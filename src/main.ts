@@ -644,8 +644,13 @@ $("authForm").addEventListener("submit", async (e) => {
     startApp();
   } catch (ex) {
     err.textContent = (ex as Error).message;
-    // The server requires a captcha this client did not know about yet (e.g. just turned on).
-    if (ex instanceof ApiError && ex.code === "captcha" && !captchaKey) await loadTrialInfo();
+    // The server requires a captcha this client did not know about yet (just turned on: the public
+    // info can be cached for minutes), so the error itself carries the site key to show it now.
+    if (ex instanceof ApiError && ex.code === "captcha" && !captchaKey) {
+      const key = ex.data.captcha;
+      if (typeof key === "string" && /^[\w-]{10,100}$/.test(key)) captchaKey = key;
+      else await loadTrialInfo();
+    }
   } finally {
     btn.disabled = false;
     if (registering) resetCaptcha();

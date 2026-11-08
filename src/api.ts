@@ -4,7 +4,7 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.11.0";
+export const APP_VERSION = "0.11.1";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";
@@ -76,7 +76,7 @@ function installId(): string {
 
 // ---------------------------------------------------------------- HTTP
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code = "") {
+  constructor(message: string, public status: number, public code = "", public data: Record<string, unknown> = {}) {
     super(message);
   }
 }
@@ -125,12 +125,14 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     const text = await res.text();
     if (!res.ok) {
       let code = "";
+      let data: Record<string, unknown> = {};
       try {
-        code = String(JSON.parse(text)?.codigo || "");
+        data = JSON.parse(text) || {};
+        code = String(data.codigo || "");
       } catch {
         /* plain text */
       }
-      throw new ApiError(messageFrom(res.status, text), res.status, code);
+      throw new ApiError(messageFrom(res.status, text), res.status, code, data);
     }
     return JSON.parse(text) as T;
   } catch (e) {

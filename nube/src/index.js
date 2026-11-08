@@ -15,7 +15,7 @@ export { Comunidad } from "./comunidad.js";
 export { RedNodos } from "./red.js";
 import { crearTokenNodo } from "./red.js";
 
-const VERSION = "3.4.0";
+const VERSION = "3.4.1";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -580,11 +580,11 @@ async function manejarComunidad(request, env, path, cuenta) {
     // Captcha antes del tope global: así los bots no pueden agotar el cupo diario de cuentas nuevas.
     if (captchaActivo(env, await cargarMotor(env))) {
       const motivo = await validarCaptcha(env, request, cuerpo.captcha);
-      if (motivo === "falta") return json({ error: "Completa la verificación «no soy un robot». Si no la ves, actualiza la app.", codigo: "captcha" }, 400, CORS_HEADERS);
+      if (motivo === "falta") return json({ error: "Completa la verificación «no soy un robot». Si no la ves, actualiza la app.", codigo: "captcha", captcha: env.TURNSTILE_SITEKEY }, 400, CORS_HEADERS);
       if (motivo === "servicio") return fallo("No se pudo comprobar la verificación ahora. Inténtalo en un momento.", 503);
       if (motivo) {
         console.warn("Captcha de registro no válido:", motivo);
-        return json({ error: "La verificación «no soy un robot» no es válida o caducó. Vuelve a intentarlo.", codigo: "captcha" }, 400, CORS_HEADERS);
+        return json({ error: "La verificación «no soy un robot» no es válida o caducó. Vuelve a intentarlo.", codigo: "captcha", captcha: env.TURNSTILE_SITEKEY }, 400, CORS_HEADERS);
       }
     }
     if ((await limitePorIp(env, "registro:global", 500, 86400000, { cerrado: true })) > 0) return fallo("Hoy se alcanzó el máximo de cuentas nuevas. Inténtalo mañana o usa el modo prueba.", 429);
