@@ -1,5 +1,7 @@
 # LibreIA
 
+![LibreIA: la IA es un bien común](landing/img/og.png)
+
 **Inteligencia artificial libre, neutral y gobernada por su comunidad.**
 
 LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de distintos proveedores, busca en la web antes de responder y cita sus fuentes. No guarda tus chats, tu correo ni tu contraseña. Todo corre en el plan gratuito de Cloudflare.
@@ -94,6 +96,14 @@ Las contribuciones son bienvenidas: código, ideas, traducciones, difusión o re
 ## Donaciones
 
 Son voluntarias y pagan servidores y modelos mejores para todas las personas. Las direcciones y los QR están en la app (♥ Apoyar): USDC en Arbitrum, Bitcoin y Monero. Para otros medios, escribe a libreia@proton.me.
+
+## Diseño
+
+Toda la familia comparte la misma piel, un brutalismo de protesta: el sitio (`landing/`), la app web, la APK (`src/tema.css`) y el panel (`admin/src/ui.js`).
+
+- **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, rojo `#ff4b2b` y ámbar `#e8c18b`.
+- **Tipografías:** Anton para los titulares, Space Mono para las etiquetas y Archivo para el texto. Son fuentes OFL servidas desde el propio sitio, sin Google Fonts.
+- **Forma:** esquinas rectas, bordes gruesos y sombras duras.
 
 ## Licencia
 

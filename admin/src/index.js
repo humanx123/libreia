@@ -8,6 +8,20 @@
 import { cifrar, descifrar, igualesSeguro } from "../../nube/src/cifrado.js";
 import { CATALOGO } from "../../nube/src/catalogo.js";
 import { HTML, CSS, JS } from "./ui.js";
+import anton from "./fuentes/anton-latin-400-normal.woff2";
+import mono400 from "./fuentes/space-mono-latin-400-normal.woff2";
+import mono700 from "./fuentes/space-mono-latin-700-normal.woff2";
+import archivo400 from "./fuentes/archivo-latin-400-normal.woff2";
+import archivo700 from "./fuentes/archivo-latin-700-normal.woff2";
+
+// Fuentes del tema común de LibreIA (mismas que la app y el sitio).
+const FUENTES = {
+  "/fuentes/anton.woff2": anton,
+  "/fuentes/mono-400.woff2": mono400,
+  "/fuentes/mono-700.woff2": mono700,
+  "/fuentes/archivo-400.woff2": archivo400,
+  "/fuentes/archivo-700.woff2": archivo700,
+};
 
 const COOKIE = "__Host-libreia_admin";
 const SESION_MS = 12 * 3600 * 1000;
@@ -34,6 +48,9 @@ export default {
     try {
       if (request.method === "GET" && ruta === "/") return estatico(HTML, "text/html; charset=utf-8");
       if (request.method === "GET" && ruta === "/app.css") return estatico(CSS, "text/css; charset=utf-8");
+      if (request.method === "GET" && Object.hasOwn(FUENTES, ruta)) {
+        return new Response(FUENTES[ruta], { headers: { ...SEGURIDAD, "Content-Type": "font/woff2", "Cache-Control": "public, max-age=31536000, immutable" } });
+      }
       if (request.method === "GET" && ruta === "/app.js") return estatico(JS, "text/javascript; charset=utf-8");
       if (ruta.startsWith("/api/")) return await api(request, env, ruta, url);
       return json({ error: "No encontrado" }, 404);

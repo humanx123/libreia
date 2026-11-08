@@ -5,6 +5,8 @@
   "compatibility_date": "2026-11-01",
   "account_id": "27098453904084d0166e9b9f4980bba7",
   "workers_dev": true,
+  // Fuentes del tema (OFL) empaquetadas en el propio Worker: se sirven en /fuentes/*.woff2.
+  "rules": [{ "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
   // Mismo KV que el principal: aquí se escriben catálogo, ajustes y claves cifradas.
   "kv_namespaces": [{ "binding": "CONFIG", "id": "4184158a8d7a41ffa5f130096fdf08b5" }],
   // Conexión privada al Worker principal (no pasa por su URL pública).
