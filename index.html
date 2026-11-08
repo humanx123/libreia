@@ -113,12 +113,13 @@
   <section class="sec cyan" id="como">
     <div class="wrap">
       <p class="label">03 / Cómo piensa</p>
-      <h2 class="h2">Cuatro formas de pensar.<br>Un solo chat.</h2>
+      <h2 class="h2">Cinco formas de pensar.<br>Un solo chat.</h2>
       <div class="modes">
         <article class="mode"><h3>Neutral</h3><p>Presenta las distintas posturas con sus mejores argumentos. Tú sacas la conclusión.</p></article>
         <article class="mode"><h3>Libre</h3><p>Directo y franco, sin sermones. Respuestas claras para personas adultas.</p></article>
         <article class="mode"><h3>Técnico</h3><p>Código y soluciones de ingeniería, al grano y comprobables.</p></article>
         <article class="mode"><h3>Fusión</h3><p>Varios modelos contestan a la vez y se combina lo mejor de cada uno.</p></article>
+        <article class="mode"><h3>Comunidad</h3><p>Experimental: responde un modelo abierto en el ordenador de un voluntario. IA hecha por personas.</p></article>
       </div>
       <div class="facts">
         <p><b>8</b> proveedores de modelos abiertos. Si uno cae, responde otro.</p>
@@ -164,6 +165,7 @@
         <div class="stat"><b data-k="activos30">—</b><span>Activos · 30 días</span></div>
         <div class="stat"><b data-k="mensajesTotal">—</b><span>Mensajes respondidos</span></div>
         <div class="stat"><b data-k="proveedores">—</b><span>Proveedores de IA</span></div>
+        <div class="stat"><b data-k="nodos">—</b><span>Nodos de voluntarios ahora</span></div>
         <div class="stat"><b data-k="btc">—</b><span>BTC donado</span></div>
         <div class="stat"><b data-k="usdc">—</b><span>USDC donado</span></div>
       </div>
@@ -180,7 +182,7 @@
         <article class="dl-card dl-apk">
           <p class="tag">Android · APK</p>
           <h3>App para Android</h3>
-          <p>Versión <b>0.10.0</b> · ~6 MB · Android 6 o superior.</p>
+          <p>Versión <b>0.11.0</b> · ~6 MB · Android 6 o superior.</p>
           <a class="btn btn-cyan big" href="https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk" download>Descargar APK ↓</a>
           <ol class="steps">
             <li>Descarga el archivo.</li>
@@ -207,10 +209,24 @@
     </div>
   </section>
 
+  <!-- ================= SUMA CÓMPUTO ================= -->
+  <section class="sec paper" id="computo">
+    <div class="wrap">
+      <p class="label">07 / Suma cómputo</p>
+      <h2 class="h2">La IA también<br><span class="hl-tag">la ponemos entre todos.</span></h2>
+      <div class="modes tres">
+        <article class="mode"><h3>Tu clave</h3><p>¿Tienes una clave gratis de Groq, Google AI Studio u OpenRouter? Ponla en Configuración: tus mensajes van con tu clave y el cupo común queda para quien no tiene. Se guarda cifrada en tu dispositivo y nunca se comparte.</p></article>
+        <article class="mode"><h3>Comunidad</h3><p>Elige el modo Comunidad y responde un modelo abierto en el ordenador de un voluntario: de la red de nodos LibreIA o de <a href="https://aihorde.net" rel="noopener">AI Horde</a>. Es más lento y el voluntario puede ver el mensaje.</p></article>
+        <article class="mode"><h3>Tu ordenador</h3><p>Con Ollama, LM Studio, llama.cpp o KoboldCpp y nuestro <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">conector</a> (un archivo de código abierto) tu modelo responde a la comunidad. Es una conexión de salida: no abres puertos. Genera el token en la app, en Configuración.</p></article>
+      </div>
+      <pre class="cmd"><code>node libreia-nodo.mjs --token TU_TOKEN --nombre TuAlias</code></pre>
+    </div>
+  </section>
+
   <!-- ================= APOYAR ================= -->
   <section class="sec red" id="apoyar">
     <div class="wrap">
-      <p class="label">07 / Sin dueños, sin anuncios</p>
+      <p class="label">08 / Sin dueños, sin anuncios</p>
       <h2 class="h2">La sostienes tú.</h2>
       <p class="lead">LibreIA es gratis y lo seguirá siendo. Cada aporte <b>voluntario</b> paga servidores y modelos mejores para todas las personas. Envía cada moneda <b>solo por su propia red</b>.</p>
       <div class="coins">
@@ -255,7 +271,7 @@
   <!-- ================= CONTACTO ================= -->
   <section class="sec ink contact" id="contacto">
     <div class="wrap">
-      <p class="label">08 / Contacto</p>
+      <p class="label">09 / Contacto</p>
       <h2 class="h2">¿Quieres sumarte?<br>Escríbenos.</h2>
       <a class="mail" href="mailto:libreia@proton.me">libreia@proton.me</a>
       <p class="lead">Para donar por otro medio, colaborar, proponer alianzas o reportar un fallo. Usamos Proton Mail, con cifrado de extremo a extremo.</p>
