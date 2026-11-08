@@ -1,7 +1,7 @@
 {
   "name": "libreia-chat-mobile",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.12.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
     "@capacitor/android": "^7.0.0",
     "@capacitor/app": "^7.1.2",
     "@capacitor/core": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.6",
     "dompurify": "^3.4.17",
     "marked": "^15.0.12"
   },

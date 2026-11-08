@@ -4,7 +4,7 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.11.1";
+export const APP_VERSION = "0.12.0";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";

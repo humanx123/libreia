@@ -160,6 +160,12 @@ Toda la familia comparte la misma piel, un brutalismo de protesta: el sitio (`la
 - **Colores:** tinta `#090b10`, papel `#efe8d8`, cian `#53e8d4`, rojo `#ff4b2b` y ámbar `#e8c18b`.
 - **Tipografías:** Anton para los titulares, Space Mono para las etiquetas y Archivo para el texto. Son fuentes OFL servidas desde el propio sitio, sin Google Fonts.
 - **Forma:** esquinas rectas, bordes gruesos y sombras duras.
+- **Pieles de la app** (Configuración → Apariencia), cada una con modo noche (por defecto) y día; se cambia con el icono ☾/☀ de la barra superior:
+  - **Pancarta**: la de siempre, cartel de protesta en cian y tinta.
+  - **Ateneo**: humanidades. Source Serif 4, granate y oro viejo, papel pautado.
+  - **Laboratorio**: ciencia. IBM Plex Sans y Mono, azul cobalto, papel milimetrado.
+
+  Las tres conservan el ADN: esquinas rectas, bordes firmes y sombras duras. `src/tema.css` solo usa variables, `src/pieles.css` define cada piel y cada modo, y `public/apariencia-inicial.js` aplica la elegida antes de pintar la página. En la APK, la barra de estado de Android sigue al tema (`@capacitor/status-bar`).
 
 ## Licencia
 

@@ -1,0 +1,132 @@
+/* =====================================================================
+   LibreIA · pieles y modo día/noche
+   Cada piel × modo redefine solo las variables de tema.css (ninguna regla de color).
+     · Pancarta     — la de siempre: brutalismo de protesta, cian y cartel.  (por defecto, noche)
+     · Ateneo       — humanidades: serif de biblioteca, granate y oro viejo, papel pautado.
+     · Laboratorio  — ciencia: IBM Plex, azul cobalto, papel milimetrado.
+   Todas conservan la estética: esquinas rectas, bordes firmes y sombras duras.
+   La app pone siempre data-piel y data-modo en <html> (ver public/apariencia-inicial.js).
+   ===================================================================== */
+@font-face{font-family:"Source Serif 4";src:url(/fonts/source-serif-4-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Source Serif 4";src:url(/fonts/source-serif-4-latin-400-italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:swap}
+@font-face{font-family:"Source Serif 4";src:url(/fonts/source-serif-4-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Source Serif 4";src:url(/fonts/source-serif-4-latin-700-normal.woff2) format("woff2");font-weight:700 900;font-display:swap}
+@font-face{font-family:"IBM Plex Sans";src:url(/fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"IBM Plex Sans";src:url(/fonts/ibm-plex-sans-latin-600-normal.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"IBM Plex Sans";src:url(/fonts/ibm-plex-sans-latin-700-normal.woff2) format("woff2");font-weight:700 900;font-display:swap}
+@font-face{font-family:"IBM Plex Mono";src:url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"IBM Plex Mono";src:url(/fonts/ibm-plex-mono-latin-600-normal.woff2) format("woff2");font-weight:600 700;font-display:swap}
+
+/* ---------------------------------------------------------- PANCARTA · día */
+:root[data-piel="pancarta"][data-modo="claro"]{
+  color-scheme:light;
+  --bg:#efe8d8;--panel:#f7f2e6;--panel2:#e3dbc8;--line:#c4b9a2;--sidebar-bg:#e8e0cd;--code-bg:#e6dfcf;--sources-bg:#f3eddf;
+  --ink:#090b10;--paper:#090b10;--strong:#000;--soft:#2b2f38;--muted:#4f5560;--dim:#6b6f78;--struck:#8a8578;
+  --accent:#53e8d4;--cyan:#53e8d4;--accent-ink:#087a6e;--on-accent:#090b10;
+  --red:#ff4b2b;--on-red:#090b10;--amber:#e8c18b;--on-warm:#090b10;--leaf:#1f4d43;
+  --error:#b3261e;--warn-bg:#f6e7c6;--warn-fg:#4d3a12;--don-muted:#aaa497;
+  --shadow:#090b10;--shadow-accent:#53e8d4;--backdrop:#090b10aa;--scroll:#b9ae97;--glow:transparent;
+  --grid:#e0d7c2;
+}
+
+/* ---------------------------------------------------------- ATENEO */
+:root[data-piel="ateneo"]{
+  --display:"Source Serif 4",Georgia,"Times New Roman",serif;--dw:700;--ds:.8;--dcase:none;
+  --sans:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* papel pautado: solo renglones */
+  --fondo:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/100% 34px;
+}
+:root[data-piel="ateneo"][data-modo="oscuro"]{
+  color-scheme:dark;
+  --bg:#15120f;--panel:#1d1915;--panel2:#262019;--line:#3d342a;--sidebar-bg:#120f0c;--code-bg:#0f0d0b;--sources-bg:#191612;
+  --ink:#ede4d1;--paper:#ede4d1;--strong:#fff8e8;--soft:#d8cdb6;--muted:#ab9e88;--dim:#857968;--struck:#857a6a;
+  --accent:#c9a24d;--cyan:#c9a24d;--accent-ink:#dcb866;--on-accent:#15120f;
+  --red:#c0493e;--on-red:#fff3e6;--amber:#b07c55;--on-warm:#15120f;--leaf:#3c4f3a;
+  --error:#f0a99c;--warn-bg:#241c12;--warn-fg:#ecd7ad;--don-muted:#5a5048;
+  --shadow:#4a3d2c;--shadow-accent:#7a2432;--backdrop:#000c;--scroll:#4a4034;--glow:transparent;
+  --grid:#211c17;
+}
+:root[data-piel="ateneo"][data-modo="claro"]{
+  color-scheme:light;
+  --bg:#f4efe4;--panel:#fbf8f1;--panel2:#ebe3d2;--line:#d3c7b0;--sidebar-bg:#efe8da;--code-bg:#f0e9db;--sources-bg:#f8f4ea;
+  --ink:#2a221b;--paper:#2a221b;--strong:#120d09;--soft:#3d342b;--muted:#6a5e50;--dim:#8a7d6b;--struck:#9a8e7e;
+  --accent:#7b2232;--cyan:#7b2232;--accent-ink:#7b2232;--on-accent:#fbf6ec;
+  --red:#a8352d;--on-red:#fff;--amber:#c9a24d;--on-warm:#2a221b;--leaf:#5d7a5a;
+  --error:#9b2c22;--warn-bg:#f3e6c8;--warn-fg:#5a4417;--don-muted:#b8ab96;
+  --shadow:#cdbfa6;--shadow-accent:#c9a24d;--backdrop:#2a221b99;--scroll:#c4b69d;--glow:transparent;
+  --grid:#e7ddcb;
+}
+
+/* ---------------------------------------------------------- LABORATORIO */
+:root[data-piel="laboratorio"]{
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--dw:700;--ds:.78;--dcase:none;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* papel milimetrado: cuadrícula fina y otra gruesa cada 5 */
+  --fondo:linear-gradient(var(--grid-major) 1px,transparent 1px) 0 0/80px 80px,linear-gradient(90deg,var(--grid-major) 1px,transparent 1px) 0 0/80px 80px,
+          linear-gradient(var(--grid) 1px,transparent 1px) 0 0/16px 16px,linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/16px 16px;
+}
+:root[data-piel="laboratorio"][data-modo="oscuro"]{
+  color-scheme:dark;
+  --bg:#0c1117;--panel:#121a23;--panel2:#18222e;--line:#283544;--sidebar-bg:#0a0f14;--code-bg:#080c11;--sources-bg:#0f151d;
+  --ink:#e4ebf2;--paper:#e4ebf2;--strong:#fff;--soft:#c9d4e0;--muted:#93a2b3;--dim:#6f8092;--struck:#7a8798;
+  --accent:#5b9dff;--cyan:#5b9dff;--accent-ink:#7db1ff;--on-accent:#08101c;
+  --red:#ff6b5e;--on-red:#0c1117;--amber:#f2c14e;--on-warm:#0c1117;--leaf:#1f4a3d;
+  --error:#ffb0a8;--warn-bg:#1d1a10;--warn-fg:#f5e1a8;--don-muted:#4a5563;
+  --shadow:#2e3d4f;--shadow-accent:#5b9dff;--backdrop:#000c;--scroll:#33404f;--glow:transparent;
+  --grid:#111820;--grid-major:#17212c;
+}
+:root[data-piel="laboratorio"][data-modo="claro"]{
+  color-scheme:light;
+  --bg:#f7f9fb;--panel:#ffffff;--panel2:#eaf0f6;--line:#c9d4e1;--sidebar-bg:#eef3f8;--code-bg:#eef2f7;--sources-bg:#f4f7fb;
+  --ink:#13202f;--paper:#13202f;--strong:#050b13;--soft:#2a3a4d;--muted:#4e5f73;--dim:#6f7f92;--struck:#8592a3;
+  --accent:#1f5fd6;--cyan:#1f5fd6;--accent-ink:#1a52bb;--on-accent:#fff;
+  --red:#c8372d;--on-red:#fff;--amber:#e3a92a;--on-warm:#13202f;--leaf:#2f6b52;
+  --error:#b3261e;--warn-bg:#fdf3d9;--warn-fg:#5c4510;--don-muted:#9fb0c3;
+  --shadow:#c3cfdd;--shadow-accent:#1f5fd6;--backdrop:#13202f99;--scroll:#b7c4d3;--glow:transparent;
+  --grid:#eaf0f6;--grid-major:#dbe4ef;
+}
+
+/* ---------------------------------------------------------- ajustes de forma por piel */
+/* Las pieles serias no inclinan los sellos ni gritan en mayúsculas los títulos. */
+:root[data-piel="ateneo"] :is(.welcome-mark,.hero-logo),
+:root[data-piel="laboratorio"] :is(.welcome-mark,.hero-logo){transform:none}
+:root[data-piel="ateneo"] .message-body{font-size:16.5px;line-height:1.62}
+:root[data-piel="ateneo"] .message-body :is(h1,h2,h3,h4){font-family:var(--display);font-weight:700}
+:root[data-piel="ateneo"] .welcome h2,:root[data-piel="ateneo"] .page h2{letter-spacing:-.01em}
+:root[data-piel="ateneo"] .welcome h2 span{font-style:italic;font-weight:400}
+:root[data-piel="laboratorio"] .welcome h2,:root[data-piel="laboratorio"] .page h2,:root[data-piel="laboratorio"] .hero h1.hero-title{letter-spacing:-.02em}
+:root[data-piel="laboratorio"] .message-body :is(h1,h2,h3,h4){font-weight:700}
+/* Laboratorio: las cifras con ancho fijo, como en una tabla de resultados */
+:root[data-piel="laboratorio"] :is(.t-stat b,.vote b){font-variant-numeric:tabular-nums}
+
+/* ---------------------------------------------------------- botón día/noche */
+.mode-toggle svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:square}
+.mode-toggle .sol{display:none}
+:root[data-modo="claro"] .mode-toggle .luna{display:none}
+:root[data-modo="claro"] .mode-toggle .sol{display:block}
+
+/* ---------------------------------------------------------- selector de piel (Configuración) */
+.pieles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:8px 0 12px}
+.piel{display:grid;gap:6px;padding:0;border:2px solid var(--line);background:var(--bg);color:var(--paper);text-align:left;cursor:pointer;box-shadow:none;font:inherit}
+.piel[aria-checked="true"]{border-color:var(--accent-ink);box-shadow:4px 4px 0 var(--shadow-accent)}
+.piel .muestra{display:flex;align-items:flex-end;justify-content:space-between;height:58px;padding:8px;border-bottom:2px solid var(--line)}
+.piel .muestra b{font-size:22px;line-height:1}
+.piel .muestra i{width:16px;height:16px;border:2px solid currentColor}
+.piel .nombre{padding:0 8px;font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.04em}
+.piel .lema{padding:0 8px 8px;font-size:11.5px;color:var(--muted);line-height:1.3}
+/* Cada muestra enseña su piel tal cual, sin depender de la activa */
+.piel[data-piel="pancarta"] .muestra{background:#090b10;color:#efe8d8;background-image:linear-gradient(#1a202b 1px,transparent 1px),linear-gradient(90deg,#1a202b 1px,transparent 1px);background-size:12px 12px}
+.piel[data-piel="pancarta"] .muestra b{font-family:"Anton",Impact,sans-serif;font-weight:400;text-transform:uppercase}
+.piel[data-piel="pancarta"] .muestra i{background:#53e8d4;color:#efe8d8}
+.piel[data-piel="ateneo"] .muestra{background:#f4efe4;color:#2a221b;background-image:linear-gradient(#e2d6c0 1px,transparent 1px);background-size:100% 12px}
+.piel[data-piel="ateneo"] .muestra b{font-family:"Source Serif 4",Georgia,serif;font-weight:700}
+.piel[data-piel="ateneo"] .muestra i{background:#7b2232;color:#c9a24d}
+.piel[data-piel="laboratorio"] .muestra{background:#f7f9fb;color:#13202f;background-image:linear-gradient(#dde6f0 1px,transparent 1px),linear-gradient(90deg,#dde6f0 1px,transparent 1px);background-size:8px 8px}
+.piel[data-piel="laboratorio"] .muestra b{font-family:"IBM Plex Sans",system-ui,sans-serif;font-weight:700}
+.piel[data-piel="laboratorio"] .muestra i{background:#1f5fd6;color:#13202f}
+.modo-row{display:flex;gap:0;border:2px solid var(--paper);width:max-content}
+.modo-row button{padding:9px 14px;border:0;background:var(--bg);color:var(--muted);font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.05em;box-shadow:none}
+.modo-row button[aria-checked="true"]{background:var(--cyan);color:var(--on-accent)}
+@media (max-width:520px){.pieles{grid-template-columns:1fr}.piel{grid-template-columns:96px 1fr;align-items:center}.piel .muestra{grid-row:span 2;height:100%;min-height:62px;border-bottom:0;border-right:2px solid var(--line)}.piel .nombre{padding-top:8px}}

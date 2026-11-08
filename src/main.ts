@@ -1,6 +1,7 @@
 // LibreIA Chat — APK (Capacitor) y web.
 import "./style.css";
 import "./tema.css";
+import "./pieles.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE, GUEST_NS } from "./api";
@@ -13,6 +14,16 @@ type Meta = { modo: string; proveedor?: string; modelo?: string };
 type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta };
 type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
 type View = "chat" | "about" | "community";
+
+// Skins: same brutalist DNA (square corners, firm borders, hard shadows), different temperament.
+// Each one has a night (default) and a day version; see pieles.css.
+const SKINS = [
+  { id: "pancarta", nombre: "Pancarta", lema: "La de siempre: cartel de protesta, cian y tinta." },
+  { id: "ateneo", nombre: "Ateneo", lema: "Humanidades: serif de biblioteca, granate y oro viejo." },
+  { id: "laboratorio", nombre: "Laboratorio", lema: "Ciencia: papel milimetrado, cobalto y tipografía técnica." },
+] as const;
+type Skin = (typeof SKINS)[number]["id"];
+type Look = { piel: Skin; modo: "oscuro" | "claro" };
 
 const MODES = [
   { id: "neutral", label: "Neutral" },
@@ -292,6 +303,10 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <h1 id="viewTitle">LibreIA</h1>
       <select id="modelPicker" class="model-picker" title="Modo de respuesta">${MODES.map((m) => `<option value="${m.id}">${m.label}</option>`).join("")}</select>
       <button class="icon-btn" type="button" data-open-support title="Apoyar LibreIA">♥</button>
+      <button id="modeToggle" class="icon-btn mode-toggle" type="button" title="Cambiar a modo día" aria-label="Cambiar a modo día">
+        <svg class="luna" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
+        <svg class="sol" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3M4.8 4.8l2.1 2.1M17.1 17.1l2.1 2.1M4.8 19.2l2.1-2.1M17.1 6.9l2.1-2.1"/></svg>
+      </button>
       <button class="icon-btn" type="button" data-open-settings title="Configuración">⚙</button>
     </header>
 
@@ -318,6 +333,10 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <dialog id="settingsDialog">
   <div class="dialog-card">
     <div class="dialog-title"><h2>Configuración y mis datos</h2><button class="icon-btn" type="button" data-close-dialog>✕</button></div>
+
+    <h3>Apariencia</h3>
+    <div class="pieles" role="radiogroup" aria-label="Piel de la app">${SKINS.map((k) => `<button type="button" class="piel" role="radio" data-piel="${k.id}" aria-checked="false"><span class="muestra" aria-hidden="true"><b>Aa</b><i></i></span><span class="nombre">${k.nombre}</span><span class="lema">${k.lema}</span></button>`).join("")}</div>
+    <div class="modo-row" role="radiogroup" aria-label="Modo"><button type="button" role="radio" data-modo="oscuro" aria-checked="true">☾ Noche</button><button type="button" role="radio" data-modo="claro" aria-checked="false">☀ Día</button></div>
 
     <h3>Preferencias</h3>
     <label class="check-row"><input id="webInput" type="checkbox"> Búsqueda web con fuentes reales</label>
@@ -587,7 +606,7 @@ async function showCaptcha() {
     if (!ts || captchaWidget) return;
     captchaWidget = ts.render(box, {
       sitekey: captchaKey,
-      theme: "dark",
+      theme: document.documentElement.dataset.modo === "claro" ? "light" : "dark", // follows the day/night toggle
       language: "es",
       callback: (t: string) => {
         captchaToken = t;
@@ -1073,6 +1092,58 @@ function openSettings() {
   void fillOwnKeyForm();
   settingsDialog.showModal();
 }
+
+// ---------------------------------------------------------------- appearance (skin + day/night)
+function readLook(): Look {
+  try {
+    const a = JSON.parse(localStorage.getItem("libreia.apariencia") || "{}");
+    return { piel: SKINS.some((k) => k.id === a.piel) ? a.piel : "pancarta", modo: a.modo === "claro" ? "claro" : "oscuro" };
+  } catch {
+    return { piel: "pancarta", modo: "oscuro" };
+  }
+}
+function applyLook(l: Look, save = true) {
+  const root = document.documentElement;
+  root.dataset.piel = l.piel;
+  root.dataset.modo = l.modo;
+  if (save) {
+    try {
+      localStorage.setItem("libreia.apariencia", JSON.stringify(l));
+    } catch {
+      /* private mode: it still applies for this visit */
+    }
+  }
+  const day = l.modo === "claro";
+  const toggle = $("modeToggle");
+  toggle.title = day ? "Cambiar a modo noche" : "Cambiar a modo día";
+  toggle.setAttribute("aria-label", toggle.title);
+  document.querySelectorAll<HTMLElement>(".piel").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.piel === l.piel)));
+  document.querySelectorAll<HTMLElement>(".modo-row [data-modo]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.modo === l.modo)));
+  // Browser chrome and the Android status bar follow the page background.
+  const bg = getComputedStyle(root).getPropertyValue("--bg").trim() || "#090b10";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", bg);
+  if (IS_NATIVE) {
+    import("@capacitor/status-bar")
+      .then(({ StatusBar, Style }) =>
+        Promise.all([StatusBar.setBackgroundColor({ color: bg }), StatusBar.setStyle({ style: day ? Style.Light : Style.Dark })]),
+      )
+      .catch(() => {
+        /* older Android or plugin missing: the bar keeps its colour */
+      });
+  }
+}
+$("modeToggle").addEventListener("click", () => {
+  const l = readLook();
+  applyLook({ ...l, modo: l.modo === "claro" ? "oscuro" : "claro" });
+});
+settingsDialog.addEventListener("click", (e) => {
+  const t = e.target as HTMLElement;
+  const skin = t.closest<HTMLElement>(".piel");
+  if (skin) return applyLook({ ...readLook(), piel: skin.dataset.piel as Skin });
+  const mode = t.closest<HTMLElement>(".modo-row [data-modo]");
+  if (mode) applyLook({ ...readLook(), modo: mode.dataset.modo === "claro" ? "claro" : "oscuro" });
+});
+applyLook(readLook(), false);
 
 // ---------------------------------------------------------------- volunteer node
 $("nodeTokenBtn").addEventListener("click", async () => {

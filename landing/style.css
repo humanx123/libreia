@@ -139,6 +139,13 @@ code{font-family:var(--mono)}
 .modes{display:grid;grid-template-columns:repeat(5,1fr);gap:18px}
 .modes.tres{grid-template-columns:repeat(3,1fr)}
 .mode a{color:var(--cyan)}
+.nodo-pasos{margin-top:46px;padding:22px 24px;border:var(--b) solid var(--ink);background:var(--paper)}
+.nodo-pasos h3{margin:0 0 12px;font:400 30px/1 var(--display);text-transform:uppercase}
+.nodo-pasos .steps{margin:0;color:var(--ink)}
+.nodo-pasos a{color:var(--ink);text-decoration-color:var(--red);text-decoration-thickness:2px}
+.nodo-pasos code{white-space:nowrap;padding:1px 5px;background:var(--ink);color:var(--cyan);font:700 13px var(--mono)}
+.nodo-vivo{margin:16px 0 0;font:700 13px var(--mono);text-transform:uppercase}
+.nodo-vivo b{display:inline-block;min-width:1.4em;padding:0 6px;background:var(--ink);color:var(--cyan);text-align:center}
 .cmd{margin:44px 0 0;padding:16px 18px;background:var(--ink);color:var(--cyan);border:var(--b) solid var(--ink);box-shadow:8px 8px 0 var(--cyan);font:700 14px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .mode{background:var(--ink);color:var(--paper);padding:22px;border:var(--b) solid var(--ink);box-shadow:8px 8px 0 var(--green)}
 .mode:nth-child(even){transform:translateY(18px)}

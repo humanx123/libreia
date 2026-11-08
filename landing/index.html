@@ -66,8 +66,8 @@
   <!-- ================= TICKER ================= -->
   <div class="ticker" aria-hidden="true">
     <div class="ticker-track">
-      <span>No guardamos tus chats</span><span>✦</span><span>No vendemos datos</span><span>✦</span><span>Una cuenta, un voto</span><span>✦</span><span>Fuentes reales</span><span>✦</span><span>Sin sermones</span><span>✦</span><span>Código abierto</span><span>✦</span><span>Gratis para siempre</span><span>✦</span>
-      <span>No guardamos tus chats</span><span>✦</span><span>No vendemos datos</span><span>✦</span><span>Una cuenta, un voto</span><span>✦</span><span>Fuentes reales</span><span>✦</span><span>Sin sermones</span><span>✦</span><span>Código abierto</span><span>✦</span><span>Gratis para siempre</span><span>✦</span>
+      <span>No guardamos tus chats</span><span>✦</span><span>No vendemos datos</span><span>✦</span><span>Una cuenta, un voto</span><span>✦</span><span>Fuentes reales</span><span>✦</span><span>Sin sermones</span><span>✦</span><span>Código abierto</span><span>✦</span><span>Trae tu propia clave</span><span>✦</span><span>IA de voluntarios</span><span>✦</span><span>Presta tu ordenador</span><span>✦</span><span>Gratis para siempre</span><span>✦</span>
+      <span>No guardamos tus chats</span><span>✦</span><span>No vendemos datos</span><span>✦</span><span>Una cuenta, un voto</span><span>✦</span><span>Fuentes reales</span><span>✦</span><span>Sin sermones</span><span>✦</span><span>Código abierto</span><span>✦</span><span>Trae tu propia clave</span><span>✦</span><span>IA de voluntarios</span><span>✦</span><span>Presta tu ordenador</span><span>✦</span><span>Gratis para siempre</span><span>✦</span>
     </div>
   </div>
 
@@ -81,6 +81,7 @@
         <div class="vs-row" role="row"><span role="cell">Tus conversaciones alimentan su negocio.</span><span role="cell">Tus chats viven <b>solo en tu dispositivo</b>. Nunca llegan a un disco nuestro.</span></div>
         <div class="vs-row" role="row"><span role="cell">Suscripciones, muros de pago, publicidad.</span><span role="cell"><b>Gratis.</b> Se sostiene con donaciones voluntarias, no con tu información.</span></div>
         <div class="vs-row" role="row"><span role="cell">Un solo modelo, una sola visión del mundo.</span><span role="cell"><b>Varios modelos abiertos.</b> El modo Neutral expone cada postura con sus mejores argumentos.</span></div>
+        <div class="vs-row" role="row"><span role="cell">Sus servidores, su cuota, sus reglas.</span><span role="cell"><b>IA hecha por personas:</b> usa tu propia clave o el ordenador de un voluntario, y presta el tuyo si quieres.</span></div>
         <div class="vs-row" role="row"><span role="cell">Te sermonea y decide qué puedes preguntar.</span><span role="cell"><b>Te trata como adulto.</b> Franqueza sin moralina; la responsabilidad es tuya.</span></div>
         <div class="vs-row" role="row"><span role="cell">Afirma sin decirte de dónde lo saca.</span><span role="cell"><b>Busca en la web y cita fuentes reales</b> <i class="cite">[1]</i> que puedes comprobar.</span></div>
         <div class="vs-row" role="row"><span role="cell">Código cerrado. Confía y calla.</span><span role="cell"><b>AGPL-3.0.</b> Audítalo, mejóralo o monta tu propia LibreIA gratis.</span></div>
@@ -150,6 +151,9 @@
         <li><b>Chats:</b> solo en tu dispositivo. Exporta en JSON o Markdown, importa o bórralos.</li>
         <li><b>Uso:</b> solo contadores agregados y anónimos, y puedes desactivarlos.</li>
         <li><b>Registros:</b> desactivados en el servidor. No guardamos IPs ni peticiones.</li>
+        <li><b>Tu propia clave:</b> se guarda cifrada solo en tu dispositivo. El servidor la reenvía a tu proveedor y no la guarda nunca.</li>
+        <li><b>Modo Comunidad:</b> el voluntario que responde puede ver tu mensaje. La app te avisa antes de activarlo.</li>
+        <li><b>Registro:</b> protegido con un captcha (Cloudflare Turnstile) contra la creación masiva de cuentas falsas.</li>
         <li><b>Esta página:</b> sin cookies, sin rastreadores y con fuentes servidas desde aquí mismo.</li>
       </ul>
     </div>
@@ -182,7 +186,8 @@
         <article class="dl-card dl-apk">
           <p class="tag">Android · APK</p>
           <h3>App para Android</h3>
-          <p>Versión <b>0.11.1</b> · ~6 MB · Android 6 o superior.</p>
+          <p>Versión <b>0.12.0</b> · ~6 MB · Android 6 o superior.</p>
+          <p class="fine">Novedades: tu propia clave de IA, modo Comunidad y red de nodos de voluntarios. Y alguna sorpresa en Configuración.</p>
           <a class="btn btn-cyan big" href="https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk" download>Descargar APK ↓</a>
           <ol class="steps">
             <li>Descarga el archivo.</li>
@@ -218,6 +223,15 @@
         <article class="mode"><h3>Tu clave</h3><p>¿Tienes una clave gratis de Groq, Google AI Studio u OpenRouter? Ponla en Configuración: tus mensajes van con tu clave y el cupo común queda para quien no tiene. Se guarda cifrada en tu dispositivo y nunca se comparte.</p></article>
         <article class="mode"><h3>Comunidad</h3><p>Elige el modo Comunidad y responde un modelo abierto en el ordenador de un voluntario: de la red de nodos LibreIA o de <a href="https://aihorde.net" rel="noopener">AI Horde</a>. Es más lento y el voluntario puede ver el mensaje.</p></article>
         <article class="mode"><h3>Tu ordenador</h3><p>Con Ollama, LM Studio, llama.cpp o KoboldCpp y nuestro <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">conector</a> (un archivo de código abierto) tu modelo responde a la comunidad. Es una conexión de salida: no abres puertos. Genera el token en la app, en Configuración.</p></article>
+      </div>
+      <div class="nodo-pasos">
+        <h3>Pon tu nodo en tres pasos</h3>
+        <ol class="steps">
+          <li>Instala <a href="https://ollama.com" rel="noopener">Ollama</a> (o LM Studio, llama.cpp, KoboldCpp) y un modelo instruct: <code>ollama pull qwen3:4b</code>. Necesitas además <a href="https://nodejs.org" rel="noopener">Node.js 22</a>.</li>
+          <li>Descarga el <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">conector</a>, un archivo de código abierto: no guarda ni muestra las preguntas.</li>
+          <li>En la app, ve a Configuración → «Presta tu ordenador», genera tu token y ejecuta el comando. Antes de recibir preguntas, tu nodo responde una de control.</li>
+        </ol>
+        <p class="nodo-vivo">Nodos de voluntarios en línea ahora: <b data-k="nodosComputo">—</b></p>
       </div>
       <pre class="cmd"><code>node libreia-nodo.mjs --token TU_TOKEN --nombre TuAlias</code></pre>
     </div>

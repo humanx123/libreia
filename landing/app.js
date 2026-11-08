@@ -43,6 +43,7 @@ fetch(API + "/transparencia")
     set("mensajesTotal", fmt(t.mensajesTotal));
     set("proveedores", fmt((t.proveedores || []).length));
     set("nodos", t.comunidad?.nodos == null ? "—" : fmt(t.comunidad.nodos));
+    set("nodosComputo", t.comunidad?.nodos == null ? "—" : fmt(t.comunidad.nodos));
     set("btc", t.donaciones?.btc ? String(t.donaciones.btc.recibido) : "—");
     set("usdc", t.donaciones?.usdc ? Number(t.donaciones.usdc.recibido).toFixed(2) : "—");
     const when = t.generado ? new Date(t.generado).toLocaleString("es") : "";
