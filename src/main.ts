@@ -2,13 +2,13 @@
 import "./style.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE } from "./api";
+import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE, GUEST_NS } from "./api";
 import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING } from "./contenido";
 
 type Role = "user" | "assistant";
 type Source = { n: number; titulo: string; url: string; dominio: string };
 type Meta = { modo: string; proveedor?: string; modelo?: string };
-type Message = { role: Role; content: string; error?: boolean; fuentes?: Source[]; meta?: Meta };
+type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta };
 type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
 type View = "chat" | "about" | "community";
 
@@ -135,6 +135,11 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button id="authSubmit" class="primary big" type="submit">Crear cuenta</button>
       <p id="authError" class="error-text" role="alert"></p>
     </form>
+    <div id="guestBox" class="guest-box">
+      <div class="or-line"><span>o</span></div>
+      <button type="button" id="guestBtn" class="guest-btn">⚡ Probar sin registrarme</button>
+      <p id="guestNote" class="muted small">Sin correo ni contraseña: unos mensajes por hora, sin Fusión ni votos. Tus chats quedan solo en este dispositivo.</p>
+    </div>
     <details class="privacy-details" open>
       <summary>🔒 Qué guardamos (y qué no)</summary>
       ${PRIVACY_POINTS}
@@ -176,6 +181,10 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
     <div id="chatView" class="chat-view">
       <div id="messages" class="messages"></div>
+      <div id="guestBar" class="guest-bar hidden">
+        <span>🧪 <b>Modo prueba</b> · <span id="guestQuota">cupo limitado por hora</span> · sin Fusión</span>
+        <button type="button" data-auth="registro">Crear cuenta gratis</button>
+      </div>
       <form id="composer" class="composer">
         <textarea id="prompt" placeholder="Escribe tu pregunta…" rows="1"></textarea>
         <button id="send" class="send-btn" type="submit" title="Enviar">➤</button>
@@ -204,6 +213,13 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     </div>
     <button type="button" id="wipeChats" class="danger-btn">Borrar todos mis chats de este dispositivo</button>
 
+    <div id="guestSection" class="hidden">
+      <h3>Modo prueba</h3>
+      <p class="muted">Estás probando LibreIA sin cuenta. Con una cuenta gratis tienes más mensajes, el modo Fusión y puedes proponer y votar. Tus chats de prueba pasan a tu cuenta en este dispositivo.</p>
+      <div class="btn-row"><button type="button" class="primary" data-auth="registro">Crear cuenta gratis</button><button type="button" data-auth="entrar">Ya tengo cuenta</button></div>
+      <button type="button" id="exitGuest">Salir del modo prueba</button>
+    </div>
+    <div id="accountSection">
     <h3>Mi cuenta</h3>
     <p class="muted">Sesión: <b id="accountEmail"></b> (el correo solo se guarda en este dispositivo).</p>
     <button type="button" id="logoutBtn">Cerrar sesión</button>
@@ -224,6 +240,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
         <button class="danger-btn" type="submit">Borrar mi cuenta para siempre</button>
       </form>
     </details>
+    </div>
     <p id="settingsStatus" class="status-text" role="status"></p>
   </div>
 </dialog>
@@ -288,9 +305,10 @@ window.addEventListener("keydown", (e) => {
 // ---------------------------------------------------------------- views
 function showView(v: View) {
   view = v;
-  const loggedIn = !!session.token;
+  const loggedIn = session.active;
   // The "about" page is also reachable before signing in.
   if (!loggedIn && v !== "about") {
+    $("guestBtn").textContent = "⚡ Probar sin registrarme";
     $("authView").classList.remove("hidden");
     shell.classList.add("hidden");
     return;
@@ -303,6 +321,7 @@ function showView(v: View) {
   $("modelPicker").classList.toggle("hidden", v !== "chat");
   $("viewTitle").textContent = v === "about" ? "¿Qué es LibreIA?" : v === "community" ? "Comunidad" : "LibreIA";
   shell.classList.toggle("no-session", !loggedIn);
+  applyGuestUi();
   if (v === "about") renderAbout();
   if (v === "community") renderCommunity();
   closeSidebarOnMobile();
@@ -315,6 +334,11 @@ document.addEventListener("click", (e) => {
   if (ext && IS_NATIVE) {
     e.preventDefault();
     window.location.href = ext.href;
+    return;
+  }
+  const toAuth = t.closest<HTMLElement>("[data-auth]");
+  if (toAuth) {
+    goToAuth(toAuth.dataset.auth === "entrar" ? "entrar" : "registro");
     return;
   }
   const go = t.closest<HTMLElement>("[data-go]");
@@ -346,7 +370,7 @@ document.addEventListener("click", (e) => {
 [settingsDialog, supportDialog].forEach((d) => d.addEventListener("click", (e) => { if (e.target === d) d.close(); }));
 
 async function share() {
-  const url = "https://libre-ia.pages.dev";
+  const url = "https://libreia.pages.dev";
   const text = "LibreIA: inteligencia artificial libre, neutral y de la comunidad. Gratis y sin guardar tus datos.";
   try {
     if (navigator.share) await navigator.share({ title: "LibreIA", text, url });
@@ -390,7 +414,9 @@ $("authForm").addEventListener("submit", async (e) => {
   try {
     const cred = await deriveCredentials(email, pass);
     const r = await api<{ sesion: string }>(authMode === "registro" ? "/cuenta/registro" : "/cuenta/entrar", { body: cred, auth: "app", timeoutMs: 20000 });
-    session.save(r.sesion, email, cred.correoHash.slice(0, 16));
+    const ns = cred.correoHash.slice(0, 16);
+    if (session.guest) adoptGuestChats(ns);
+    session.save(r.sesion, email, ns);
     $<HTMLInputElement>("authPass").value = "";
     $<HTMLInputElement>("authPass2").value = "";
     startApp();
@@ -401,6 +427,70 @@ $("authForm").addEventListener("submit", async (e) => {
     setAuthMode(authMode);
   }
 });
+
+// ---------------------------------------------------------------- trial mode (no account)
+let guestQuota: number | null = null;
+function startGuest() {
+  session.startGuest();
+  sendEvent("prueba_iniciada");
+  startApp();
+}
+$("guestBtn").addEventListener("click", startGuest);
+$("exitGuest").addEventListener("click", () => {
+  if (confirm("¿Salir del modo prueba? Tus chats de prueba se quedan en este dispositivo.")) logout();
+});
+/** Shows the sign-up / sign-in screen; a guest can go back to trying it out. */
+function goToAuth(mode: "registro" | "entrar") {
+  settingsDialog.close();
+  setAuthMode(mode);
+  $("authView").classList.remove("hidden");
+  shell.classList.add("hidden");
+  $("guestBtn").textContent = session.guest ? "← Seguir probando sin cuenta" : "⚡ Probar sin registrarme";
+  $("authView").scrollTop = 0;
+  $<HTMLInputElement>("authEmail").focus();
+}
+/** Trial chats move into the account the guest creates or signs into (on this device only). */
+function adoptGuestChats(ns: string) {
+  const from = `libreia.chats.${GUEST_NS}`;
+  try {
+    const guestChats: ChatSession[] = JSON.parse(localStorage.getItem(from) || "[]").filter((c: ChatSession) => c.messages?.length);
+    const mine: ChatSession[] = JSON.parse(localStorage.getItem(`libreia.chats.${ns}`) || "[]");
+    if (guestChats.length) localStorage.setItem(`libreia.chats.${ns}`, JSON.stringify([...guestChats.filter((g) => !mine.some((m) => m.id === g.id)), ...mine]));
+    localStorage.removeItem(from);
+    localStorage.removeItem(`${from}.active`);
+  } catch {
+    /* broken trial data: leave it where it is */
+  }
+}
+function applyGuestUi() {
+  const guest = session.guest;
+  $("guestBar").classList.toggle("hidden", !guest || view !== "chat");
+  const pick = $<HTMLSelectElement>("modelPicker");
+  const fusion = pick.querySelector<HTMLOptionElement>("option[value=fusion]")!;
+  fusion.disabled = guest;
+  fusion.textContent = guest ? "Fusión (con cuenta)" : "Fusión";
+  if (guest && model === "fusion") {
+    model = "neutral";
+    pick.value = model;
+  }
+  if (guestQuota) $("guestQuota").textContent = `${guestQuota} mensajes por hora`;
+}
+/** Reads the public trial quota (also tells whether trial mode is enabled at all). */
+async function loadTrialInfo() {
+  try {
+    const t = await api("/transparencia", { auth: "app" });
+    const p = t?.prueba;
+    if (p && p.activa === false) {
+      $("guestBox").classList.add("hidden");
+      return;
+    }
+    guestQuota = Number(p?.mensajesPorHora) || null;
+    if (guestQuota) $("guestNote").textContent = `Sin correo ni contraseña: hasta ${guestQuota} mensajes por hora, sin Fusión ni votos. Tus chats quedan solo en este dispositivo.`;
+    applyGuestUi();
+  } catch {
+    /* the button stays; the server answers with the real limit if needed */
+  }
+}
 
 function logout() {
   session.clear();
@@ -433,7 +523,8 @@ function renderMessages() {
         const meta = m.meta && m.role === "assistant" && !m.error
           ? `<div class="msg-meta">${esc(modeLabel(m.meta.modo))}${m.meta.proveedor ? ` · respondió ${esc(m.meta.proveedor)}${m.meta.modelo ? ` / ${esc(m.meta.modelo)}` : ""}` : ""}</div>`
           : "";
-        return `<div class="message ${m.role}${m.error ? " error" : ""}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${meta}</div></div>`;
+        const cta = m.cta && session.guest ? `<div class="cta-row"><button type="button" class="primary" data-auth="registro">Crear cuenta gratis</button><button type="button" data-auth="entrar">Ya tengo cuenta</button></div>` : "";
+        return `<div class="message ${m.role}${m.error ? " error" : ""}${m.cta ? " trial" : ""}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${cta}${meta}</div></div>`;
       })
       .join("") +
     (pendingChatId === chatId ? `<div class="thinking"><i></i>${prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}</div>` : "");
@@ -561,7 +652,8 @@ async function sendMessage(prompt: string) {
     }
   } catch (e) {
     const err = e as ApiError;
-    reply({ role: "assistant", content: `❌ No se pudo obtener respuesta.\n\n${err.message}`, error: true });
+    const needsAccount = session.guest && (err.status === 401 || err.status === 403 || (err.status === 429 && /prueba/i.test(err.message)));
+    reply({ role: "assistant", content: needsAccount ? `🧪 ${err.message}` : `❌ No se pudo obtener respuesta.\n\n${err.message}`, error: true, cta: needsAccount });
     if (err.status === 401 && /sesi[oó]n/i.test(err.message)) {
       alert(err.message);
       logout();
@@ -570,7 +662,7 @@ async function sendMessage(prompt: string) {
     sending = false;
     pendingChatId = null;
     $("send").classList.remove("busy");
-    if (session.token) {
+    if (session.active) {
       renderMessages();
       renderChatList();
     }
@@ -611,7 +703,7 @@ async function renderAbout() {
     aboutRendered = true;
   }
   // Without a session, "back" returns to the sign-in screen.
-  el.querySelectorAll<HTMLElement>("[data-back]").forEach((b) => (b.textContent = session.token ? "← Volver al chat" : "← Volver a crear cuenta / entrar"));
+  el.querySelectorAll<HTMLElement>("[data-back]").forEach((b) => (b.textContent = session.active ? "← Volver al chat" : "← Volver a crear cuenta / entrar"));
   el.scrollTop = 0;
   const box = $("transparency");
   try {
@@ -642,7 +734,8 @@ async function renderCommunity() {
     <button class="back-btn" data-back type="button">← Volver al chat</button>
     <h2>Comunidad: decide el rumbo de LibreIA</h2>
     <p class="muted">Propón mejoras y vota las que quieras ver. Una cuenta, un voto. Los votos se guardan con una huella anónima de tu cuenta: nadie puede saber qué votaste.</p>
-    <form id="proposalForm" class="card-form">
+    ${session.guest ? `<div class="guest-cta"><p>🧪 En modo prueba puedes leer las propuestas. Para proponer y votar necesitas una cuenta (gratis, sin datos personales): así se cumple «una cuenta, un voto».</p><button type="button" class="primary" data-auth="registro">Crear cuenta gratis</button></div>` : ""}
+    <form id="proposalForm" class="card-form${session.guest ? " hidden" : ""}">
       <input id="propTitle" maxlength="120" placeholder="Tu propuesta en una frase (ej.: añadir un modo para estudiantes)" required minlength="6">
       <textarea id="propText" maxlength="1000" rows="3" placeholder="Explica por qué sería útil (opcional)"></textarea>
       <button class="primary" type="submit">Proponer</button>
@@ -666,6 +759,10 @@ async function renderCommunity() {
   $("proposalList").addEventListener("click", async (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-vote]");
     if (!b) return;
+    if (session.guest) {
+      if (confirm("Para votar necesitas una cuenta gratis (una cuenta, un voto). ¿Crearla ahora?")) goToAuth("registro");
+      return;
+    }
     b.disabled = true;
     try {
       await api("/propuestas/votar", { body: { propuesta: Number(b.dataset.vote) } });
@@ -702,6 +799,8 @@ function openSettings() {
   $<HTMLInputElement>("webInput").checked = prefs.web;
   $<HTMLInputElement>("statsInput").checked = prefs.stats;
   $("accountEmail").textContent = session.email || "—";
+  $("guestSection").classList.toggle("hidden", !session.guest);
+  $("accountSection").classList.toggle("hidden", session.guest);
   $("settingsStatus").textContent = "";
   settingsDialog.showModal();
 }
@@ -874,5 +973,13 @@ function startApp() {
 
 sendEvent("app_abierta");
 setAuthMode(session.token ? "entrar" : "registro");
-if (session.token) startApp();
-else showView("chat");
+// Links from the website: ?probar=1 starts trial mode, ?cuenta=registro|entrar opens that tab.
+const params = new URLSearchParams(location.search);
+if (params.has("probar") || params.has("cuenta")) history.replaceState(null, "", location.pathname);
+loadTrialInfo();
+if (session.active) startApp();
+else if (params.has("probar")) startGuest();
+else {
+  if (params.get("cuenta") === "entrar") setAuthMode("entrar");
+  showView("chat");
+}

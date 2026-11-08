@@ -430,6 +430,8 @@ async function api(request, env, ruta, url) {
       sistema,
       busquedaWeb: a.busquedaWeb !== false,
       requerirCuenta: a.requerirCuenta !== false,
+      invitados: a.invitados !== false,
+      mensajesInvitado: Math.min(Math.max(Math.floor(Number(a.mensajesInvitado)) || 10, 1), 100),
       resultadosWeb: Math.min(Math.max(Math.floor(Number(a.resultadosWeb)) || 5, 1), 8),
     };
     await env.CONFIG.put("motor:ajustes", JSON.stringify(ajustes));

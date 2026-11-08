@@ -17,6 +17,8 @@ export const AJUSTES_POR_DEFECTO = {
   sistema: {},
   busquedaWeb: true,
   requerirCuenta: true,
+  invitados: true,
+  mensajesInvitado: 10,
   resultadosWeb: 5,
 };
 

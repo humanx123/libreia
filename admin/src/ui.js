@@ -101,6 +101,8 @@ export const HTML = `<!doctype html>
       <label class="check"><input id="aMant" type="checkbox"> Modo mantenimiento (la app deja de responder y muestra el mensaje)</label>
       <label>Mensaje de mantenimiento<input id="aMantMsg" maxlength="300"></label>
       <label class="check"><input id="aCuenta" type="checkbox"> Exigir cuenta para chatear (si se desactiva, también funcionan las versiones antiguas de la app)</label>
+      <label class="check"><input id="aInvitados" type="checkbox"> Modo prueba: permitir chatear sin cuenta (sin Fusión, con cupo por IP)</label>
+      <label>Mensajes de prueba por hora y por IP (1–100)<input id="aInvN" type="number" min="1" max="100"></label>
       <label class="check"><input id="aWeb" type="checkbox"> Búsqueda web en las respuestas (fuentes reales citadas)</label>
       <label>Fuentes por respuesta (1–8)<input id="aWebN" type="number" min="1" max="8"></label>
       <h3>Instrucciones de sistema por modo</h3>
@@ -291,7 +293,7 @@ async function cargarUso() {
     $("usoMensajes").innerHTML =
       tarjeta("Hoy", num(m.hoy)) + tarjeta("7 días", num(m.dias7)) + tarjeta("30 días", num(m.dias30)) + tarjeta("Total", num(m.total))
       + tarjeta("Fallos (30 días)", num(m.fallos30), m.dias30 ? ((m.fallos30 / m.dias30) * 100).toFixed(1) + " % de los mensajes" : "");
-    $("usoReparto").innerHTML = reparto("Por modo (30 días)", m.porModo30) + reparto("Por proveedor (30 días)", m.porProveedor30) + reparto("Por plataforma (30 días)", m.porPlataforma30) + reparto("Búsqueda web (30 días)", m.web30);
+    $("usoReparto").innerHTML = reparto("Por modo (30 días)", m.porModo30) + reparto("Por proveedor (30 días)", m.porProveedor30) + reparto("Por plataforma (30 días)", m.porPlataforma30) + reparto("Búsqueda web (30 días)", m.web30) + reparto("Cuenta o modo prueba (30 días)", { "con cuenta": Math.max((m.dias30 || 0) - (m.invitado30 || 0), 0), "modo prueba": m.invitado30 || 0 });
 
     const c = u.cadena || {};
     const ev = (k) => num(ev30[k]) + " (total " + num(evT[k]) + ")";
@@ -498,6 +500,7 @@ async function cargarAjustes() {
     const s = await traerEstado(), a = s.ajustes;
     $("aLimite").value = a.limitePorMinuto; $("aMant").checked = !!a.mantenimiento; $("aMantMsg").value = a.mensajeMantenimiento || "";
     $("aWeb").checked = a.busquedaWeb !== false; $("aCuenta").checked = a.requerirCuenta !== false; $("aWebN").value = a.resultadosWeb || 5;
+    $("aInvitados").checked = a.invitados !== false; $("aInvN").value = a.mensajesInvitado || 10;
     $("aSistema").innerHTML = MODOS.map(([id, nombre]) =>
       '<label>' + nombre + '<textarea data-sistema="' + id + '" maxlength="4000" placeholder="' + esc(s.sistemaPorDefecto[id]) + '">' + esc(a.sistema?.[id] || "") + "</textarea></label>").join("");
   } catch (e) { aviso("No se pudieron leer los ajustes: " + e.message, "bad"); }
@@ -508,7 +511,7 @@ $("ajustesForm").addEventListener("submit", (e) => {
   if ($("aMant").checked && !confirm("El modo mantenimiento detiene la app para todos los usuarios. ¿Activarlo?")) return;
   ocupado(e.submitter, async () => {
     try {
-      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, resultadosWeb: +$("aWebN").value }) });
+      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, mensajesInvitado: +$("aInvN").value, resultadosWeb: +$("aWebN").value }) });
       aviso("✓ Ajustes guardados. La app los usa en menos de 30 s.");
     } catch (err) { aviso(err.message, "bad"); }
   });

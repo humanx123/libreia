@@ -4,7 +4,8 @@
 
 LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de distintos proveedores, busca en la web antes de responder y cita sus fuentes. No guarda tus chats, tu correo ni tu contraseña. Todo corre en el plan gratuito de Cloudflare.
 
-- 🌐 Web: <https://libre-ia.pages.dev>
+- 🏴 Sitio y manifiesto: <https://libreia.pages.dev> (espejo: <https://humanx123.github.io/libreia/>)
+- 💬 Chat web: <https://libre-ia.pages.dev> · [probar sin registro](https://libre-ia.pages.dev/?probar=1)
 - 📱 APK Android: <https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk>
 - ✉️ Contacto: <libreia@proton.me>
 
@@ -14,6 +15,7 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
 - **Varios proveedores.** Si un modelo falla o se queda sin cuota, responde el siguiente. La lista y el orden se editan desde el panel.
 - **Búsqueda web con fuentes reales.** Usa Keenable, que no necesita clave, y Wikipedia como respaldo. Las fuentes se citan como `[1]` y se listan debajo de cada respuesta.
 - **Markdown seguro.** Se muestra con `marked` y se limpia con `DOMPurify`.
+- **Modo prueba.** Se puede chatear sin cuenta con un cupo por hora (sin Fusión ni votos). Los chats de prueba pasan a tu cuenta si te registras.
 - **Comunidad.** Las personas usuarias proponen y votan mejoras: una cuenta, un voto.
 - **Transparencia pública.** `GET /v1/transparencia` devuelve cifras agregadas de uso y de donaciones.
 
@@ -43,6 +45,7 @@ nube/src/            Worker principal (libreia-api)
   comunidad.js       Durable Object: cuentas (solo huellas) y propuestas o votos.
   estadisticas.js    Durable Object: contadores anónimos agregados.
   catalogo.js        Catálogo de proveedores y modelos por defecto.
+landing/             Sitio público (manifiesto, descarga, donaciones). Estático, sin dependencias.
 admin/               Worker del panel de administración (libreia-admin). Usuario y contraseña, sesión HMAC.
 android/             Proyecto Android de Capacitor.
 ```

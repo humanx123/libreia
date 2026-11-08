@@ -82,7 +82,8 @@ export const ABOUT_HTML = `
     <h2>Contribuir</h2>
     <p>LibreIA es <b>software libre</b> (AGPL-3.0). El código completo está en
       <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer" data-external>${REPO_URL.replace("https://", "")}</a>:
-      puedes revisarlo, proponer cambios o desplegar tu propia instancia gratis en Cloudflare.</p>
+      puedes revisarlo, proponer cambios o desplegar tu propia instancia gratis en Cloudflare.
+      Comparte el sitio <a href="https://libreia.pages.dev" target="_blank" rel="noopener noreferrer" data-external>libreia.pages.dev</a>.</p>
     <p>¿Quieres aportar código, ideas, traducciones, difusión o recursos? Escríbenos a
       <a href="mailto:${CONTACT_EMAIL}?subject=Quiero%20contribuir%20a%20LibreIA">${CONTACT_EMAIL}</a>
       o deja tu propuesta en la <button type="button" class="link-btn inline" data-go="community">Comunidad</button>.</p>

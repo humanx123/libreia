@@ -189,23 +189,35 @@ async function manejarV1(request, env, path, ctx) {
   }
 
   if (path === "/v1/chat/completions" && request.method === "POST") {
-    // Con «requerir cuenta» activo (por defecto), solo se chatea con sesión iniciada.
-    if (!cuenta && motor.ajustes.requerirCuenta !== false) {
-      return errorOpenAI("Para chatear necesitas una cuenta de LibreIA. Actualiza la app desde https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk o entra en https://libre-ia.pages.dev", 401, "account_required");
-    }
-    // Límite por IP: un Durable Object por IP con contador en memoria (sin escrituras de KV).
     if (motor.ajustes.mantenimiento) {
       return errorOpenAI(motor.ajustes.mensajeMantenimiento, 503, "maintenance");
     }
     const ip = request.headers.get("CF-Connecting-IP") || "anon";
-    // El límite va por cuenta si hay sesión (si no, por IP).
+    const cuerpo = await request.json().catch(() => null);
+    if (!cuerpo) return errorOpenAI("JSON inválido", 400, "invalid_request_error");
+
+    // Modo prueba: sin cuenta se puede chatear con un cupo pequeño por IP y sin Fusión.
+    // Con «requerir cuenta» desactivado, la app sin sesión se trata como antes (solo límite por minuto).
+    const invitado = !cuenta && motor.ajustes.requerirCuenta !== false;
+    if (invitado) {
+      if (motor.ajustes.invitados === false) {
+        return errorOpenAI("Para chatear necesitas una cuenta de LibreIA (es gratis y no guarda datos personales). Entra en https://libre-ia.pages.dev o actualiza la app desde https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk", 401, "account_required");
+      }
+      if (cuerpo.model === "fusion") {
+        return errorOpenAI("El modo Fusión consulta varios modelos a la vez y está reservado a cuentas. Crea una cuenta gratis o usa otro modo.", 403, "account_required");
+      }
+      const cupo = Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100);
+      const esperaPrueba = await limitePorIp(env, "invitado:" + ip, cupo, 3600000);
+      if (esperaPrueba > 0) {
+        return errorOpenAI(`Usaste los ${cupo} mensajes de prueba de esta hora. Crea una cuenta gratis (sin datos personales) para seguir, o vuelve en ${Math.ceil(esperaPrueba / 60)} min.`, 429, "guest_limit");
+      }
+    }
+    // Límite por minuto: un Durable Object por cuenta (o por IP sin sesión), sin escrituras de KV.
     const espera = await limitePorIp(env, cuenta ? "cuenta:" + cuenta.id : ip, motor.ajustes.limitePorMinuto);
     if (espera > 0) {
       return errorOpenAI(`Demasiadas peticiones: espera ${espera} s e inténtalo de nuevo`, 429, "rate_limit_exceeded");
     }
 
-    const cuerpo = await request.json().catch(() => null);
-    if (!cuerpo) return errorOpenAI("JSON inválido", 400, "invalid_request_error");
     // Compatibilidad: IDs antiguos de FreeLLMAPI se tratan como el modo más cercano.
     const alias = { auto: "neutral", codestral: "tecnico" };
     const pedido = typeof cuerpo.model === "string" ? cuerpo.model : "";
@@ -227,7 +239,7 @@ async function manejarV1(request, env, path, ctx) {
       }
 
       const contar = (proveedor) => ctx.waitUntil(registrarEstadistica(env, request, [
-        "mensajes", `modo:${modo}`, proveedor ? `proveedor:${proveedor}` : "fallo",
+        "mensajes", `modo:${modo}`, proveedor ? `proveedor:${proveedor}` : "fallo", ...(invitado ? ["invitado"] : []),
         ...(busqueda ? [`web:${fuentes.length ? busqueda.motor : "sin_fuentes"}`] : []),
       ]));
       if (modo === "fusion") {
@@ -351,8 +363,13 @@ async function manejarComunidad(request, env, path, cuenta) {
     return json({ ok: true, sesion: await crearSesion(env, c.id) }, 200, CORS_HEADERS);
   }
 
+  // Sin cuenta (modo prueba) solo se pueden leer las propuestas.
+  if (!cuenta && path === "/v1/propuestas" && request.method === "GET") {
+    const r = await llamarComunidad(env, "/propuestas", { cuenta: "" }, "GET");
+    return json(r.datos, r.estado, CORS_HEADERS);
+  }
   // Lo demás requiere sesión.
-  if (!cuenta) return fallo("Necesitas entrar con tu cuenta", 401);
+  if (!cuenta) return fallo("Para proponer, votar o gestionar tu cuenta necesitas entrar con tu cuenta", 401);
 
   if (path === "/v1/cuenta/contrasena" && request.method === "POST") {
     const actual = await credenciales(env, { correoHash: cuerpo.correoHash, clave: cuerpo.claveActual });
@@ -405,6 +422,11 @@ async function transparencia(env, motor) {
     mensajesTotal: uso?.mensajes?.total ?? null,
     mensajes30: uso?.mensajes?.dias30 ?? null,
     proveedores,
+    // Modo prueba (chatear sin cuenta): la app y la web lo muestran antes de entrar.
+    prueba: {
+      activa: motor.ajustes.requerirCuenta === false || motor.ajustes.invitados !== false,
+      mensajesPorHora: motor.ajustes.requerirCuenta === false ? null : Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100),
+    },
     donaciones: {
       btc: cadena?.btc ? { recibido: cadena.btc.recibido, pagos: cadena.btc.donaciones } : null,
       usdc: cadena?.usdc ? { recibido: cadena.usdc.recibido, pagos: cadena.usdc.donaciones, desde: cadena.usdc.desde } : null,

@@ -4,13 +4,14 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.6.1";
+export const APP_VERSION = "0.7.0";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";
 export const IS_NATIVE = isNative;
 
 // ---------------------------------------------------------------- session
+export const GUEST_NS = "invitado";
 export const session = {
   get token(): string | null {
     return localStorage.getItem("libreia.sesion");
@@ -22,7 +23,20 @@ export const session = {
   get ns(): string | null {
     return localStorage.getItem("libreia.ns");
   },
+  /** Trial mode: chatting without an account (small hourly quota per IP, no Fusion, no votes). */
+  get guest(): boolean {
+    return !this.token && localStorage.getItem("libreia.invitado") === "si";
+  },
+  /** Signed in or trying it out: the chat is usable. */
+  get active(): boolean {
+    return !!this.token || this.guest;
+  },
+  startGuest() {
+    localStorage.setItem("libreia.invitado", "si");
+    localStorage.setItem("libreia.ns", GUEST_NS);
+  },
   save(token: string, email: string, ns: string) {
+    localStorage.removeItem("libreia.invitado");
     localStorage.setItem("libreia.sesion", token);
     localStorage.setItem("libreia.correo", email);
     localStorage.setItem("libreia.ns", ns);
@@ -31,6 +45,7 @@ export const session = {
     localStorage.removeItem("libreia.sesion");
     localStorage.removeItem("libreia.correo");
     localStorage.removeItem("libreia.ns");
+    localStorage.removeItem("libreia.invitado");
   },
 };
 

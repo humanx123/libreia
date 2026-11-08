@@ -10,6 +10,7 @@ const DIAS_RETENCION_ACTIVOS = 90;
 export const EVENTOS_APP = new Set([
   "app_abierta",
   "donar_abierto",
+  "prueba_iniciada",
   "copiar:usdc", "copiar:btc", "copiar:xmr",
   "billetera:usdc", "billetera:btc", "billetera:xmr",
 ]);
@@ -134,6 +135,7 @@ export class Estadisticas {
         dias30: suma("mensajes", d30),
         total: suma("mensajes"),
         fallos30: suma("fallo", d30),
+        invitado30: suma("invitado", d30),
         porModo30: porPrefijo("modo:", d30),
         porProveedor30: porPrefijo("proveedor:", d30),
         porPlataforma30: porPrefijo("plataforma:", d30),
