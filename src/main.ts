@@ -1,5 +1,6 @@
 // LibreIA Chat — APK (Capacitor) y web.
 import "./style.css";
+import "./tema.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE, GUEST_NS } from "./api";
@@ -120,7 +121,7 @@ const modeLabel = (id: string) => MODES.find((m) => m.id === id)?.label || id;
 document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 <section id="authView" class="auth-view hidden">
   <div class="auth-card">
-    <div class="auth-brand"><img src="/libreia-logo.png" alt=""><div><h1>LibreIA</h1><p>IA libre, neutral y de la comunidad</p></div></div>
+    <div class="auth-brand"><img src="/libreia-logo.png" alt=""><div><h1>Libre<b>IA</b></h1><p>// La IA es un bien común</p></div></div>
     <div class="auth-tabs" role="tablist">
       <button type="button" data-auth-tab="registro" class="active">Crear cuenta</button>
       <button type="button" data-auth-tab="entrar">Entrar</button>
@@ -152,7 +153,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
   <div id="backdrop" class="backdrop"></div>
   <aside class="sidebar" id="sidebar" aria-label="Menú">
     <div class="sidebar-head">
-      <div class="brand"><img class="brand-logo" src="/libreia-logo.png" alt=""><strong>LIBREIA</strong></div>
+      <div class="brand"><img class="brand-logo" src="/libreia-logo.png" alt=""><strong>LIBRE<b>IA</b></strong></div>
       <button id="hideSidebar" class="hide-btn" type="button" title="Ocultar el menú">⟨ Ocultar</button>
     </div>
     <button id="newChat" class="new-chat" type="button">＋ Nuevo chat</button>
@@ -504,7 +505,7 @@ function logout() {
 // ---------------------------------------------------------------- chat rendering
 function renderMessages() {
   if (!messages.length) {
-    messagesEl.innerHTML = `<div class="welcome"><img class="welcome-mark" src="/libreia-logo.png" alt=""><h2>¿En qué te ayudo?</h2>
+    messagesEl.innerHTML = `<div class="welcome"><img class="welcome-mark" src="/libreia-logo.png" alt=""><p class="welcome-kicker">// IA libre · neutral · de la comunidad</p><h2>¿En qué te <span>ayudo</span>?</h2>
       <p>Pregunta lo que quieras. LibreIA busca en la web y cita sus fuentes.</p>
       <div class="suggestions">
         <button type="button" data-suggest="Explícame las distintas posturas sobre la renta básica universal">Posturas sobre la renta básica</button>

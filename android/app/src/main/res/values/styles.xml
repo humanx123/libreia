@@ -13,6 +13,11 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Barras del sistema en la tinta de LibreIA (igual que la web y el sitio) -->
+        <item name="android:windowBackground">#FF090B10</item>
+        <item name="android:statusBarColor">#FF090B10</item>
+        <item name="android:navigationBarColor">#FF090B10</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 

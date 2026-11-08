@@ -24,8 +24,10 @@ export const ABOUT_HTML = `
 
   <section class="hero">
     <img src="/libreia-logo.png" alt="" class="hero-logo">
-    <h1>LibreIA</h1>
-    <p class="hero-sub">Inteligencia artificial libre, neutral y gobernada por su comunidad.</p>
+    <p class="hero-kicker">// Manifiesto · código abierto · AGPL-3.0</p>
+    <h1 class="hero-title"><span>La IA es</span><span class="struck">propiedad privada</span><span class="hl">bien común.</span></h1>
+    <p class="hero-sub"><b>LibreIA</b>: inteligencia artificial libre, neutral y gobernada por su comunidad. Más en
+      <a href="https://libreia.pages.dev" target="_blank" rel="noopener noreferrer" data-external>libreia.pages.dev</a>.</p>
   </section>
 
   <section class="about-block">
