@@ -13,13 +13,35 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
 
 ## Qué hace
 
-- **Cuatro modos.** Neutral muestra los distintos puntos de vista. Libre responde de forma directa y sin sermones. Técnico está pensado para código. Fusión pone a varios modelos a responder a la vez y combina lo mejor de cada uno.
+- **Cinco modos.** Neutral muestra los distintos puntos de vista. Libre responde de forma directa y sin sermones. Técnico está pensado para código. Fusión pone a varios modelos a responder a la vez y combina lo mejor de cada uno. Comunidad (experimental) usa modelos de voluntarios (ver abajo).
 - **Varios proveedores.** Si un modelo falla o se queda sin cuota, responde el siguiente. La lista y el orden se editan desde el panel.
 - **Búsqueda web con fuentes reales.** Usa Keenable, que no necesita clave, y Wikipedia como respaldo. Las fuentes se citan como `[1]` y se listan debajo de cada respuesta.
 - **Markdown seguro.** Se muestra con `marked` y se limpia con `DOMPurify`.
 - **Modo prueba.** Se puede chatear sin cuenta con un cupo por hora (sin Fusión ni votos). Los chats de prueba pasan a tu cuenta si te registras.
 - **Comunidad.** Las personas usuarias proponen y votan mejoras: una cuenta, un voto.
 - **Transparencia pública.** `GET /v1/transparencia` devuelve cifras agregadas de uso y de donaciones.
+
+## Suma cómputo: IA hecha por personas
+
+- **Trae tu propia clave.** Quien tiene una clave de Groq, Google AI Studio, OpenRouter, Cerebras, Mistral, NVIDIA, SambaNova, DeepSeek u OpenAI la pone en Configuración. Sus mensajes van con su clave y no gastan el cupo común ni el tope diario.
+  - **En el dispositivo:** la clave se cifra con AES-GCM usando una llave **no exportable** guardada en IndexedDB.
+  - **En el servidor:** viaja con cada petición y no se guarda en ningún sitio. El Worker solo la reenvía a una lista fija de proveedores (`nube/src/propia.js`), así que no funciona como proxy abierto. Sus fallos no afectan a las claves comunes.
+  - **No hay un fondo común de claves.** Los planes gratuitos no permiten compartir claves, y quien las donara respondería del uso de desconocidos.
+- **Modo Comunidad (experimental).** Responde un modelo abierto en el ordenador de un voluntario:
+  1. Primero, un nodo de la red propia de LibreIA.
+  2. Si no hay ninguno libre, [AI Horde](https://aihorde.net), con los mejores modelos instruct en línea en ese momento (`nube/src/horda.js`).
+  - **Aviso:** la app avisa de que el voluntario **puede ver el mensaje** y pide confirmación la primera vez.
+- **Presta tu ordenador (nodos LibreIA).**
+  - **Instalación:** con Ollama, LM Studio, llama.cpp o KoboldCpp y el conector [`public/nodo/libreia-nodo.mjs`](public/nodo/libreia-nodo.mjs) (Node 22, sin dependencias), un modelo local responde a la comunidad.
+  - **Conexión:** el conector abre un WebSocket de salida hacia el Durable Object `RedNodos` (`nube/src/red.js`), así que no hay que abrir puertos. Los «ping» se contestan sin despertar al objeto (hibernación, plan gratuito).
+  - **Token:** se genera en la app con una cuenta. Caduca si la cuenta cierra todas sus sesiones. Se admiten como máximo 3 nodos por cuenta.
+  - **Confianza:** antes de recibir tráfico, el nodo responde una pregunta de control con respuesta conocida. El panel lista los nodos y bloquea cuentas.
+  - **Privacidad:** el conector no guarda ni muestra las preguntas, y el Durable Object solo guarda contadores por nodo.
+
+```
+node libreia-nodo.mjs --token TU_TOKEN --nombre TuAlias            # Ollama (por defecto)
+node libreia-nodo.mjs --token TU_TOKEN --api http://127.0.0.1:1234/v1   # LM Studio
+```
 
 ## Privacidad por diseño
 
@@ -29,6 +51,7 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
 | Contraseña | Se deriva en el dispositivo con PBKDF2-SHA256 de 600 000 iteraciones y nunca sale en claro. Las cuentas creadas antes de la 0.10 (200 000 iteraciones) se refuerzan solas al volver a entrar. |
 | Servidor | Solo guarda `HMAC(pepper, …)` de esos valores. Por eso **no hay recuperación de contraseña**. |
 | Chats | Viven solo en el dispositivo. Se pueden exportar (JSON o Markdown), importar y borrar. |
+| Quién lee cada mensaje | El proveedor del modelo (o el de tu propia clave). En el modo Comunidad, el ordenador de un voluntario, que podría verlo: la app lo avisa. |
 | Uso | Solo hay contadores agregados (un id de instalación aleatorio, guardado como HMAC) y se pueden desactivar en la app. |
 | Registros | `observability` está desactivado en el Worker principal: no se guardan IPs ni peticiones. |
 
@@ -38,6 +61,7 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
 src/                 App (Vite + TypeScript). La misma build sirve para la web y para la APK (Capacitor 7).
   main.ts            Vistas: acceso, chat, «¿Qué es LibreIA?», comunidad y configuración.
   api.ts             Cliente HTTP y criptografía de las cuentas (WebCrypto).
+  propia.ts          Clave propia cifrada en el dispositivo (AES-GCM con llave no exportable).
   contenido.ts       Manifiesto y textos de privacidad.
 nube/src/            Worker principal (libreia-api)
   index.js           API compatible con OpenAI (/v1/*), cuentas, comunidad y transparencia.
@@ -45,6 +69,9 @@ nube/src/            Worker principal (libreia-api)
   busqueda.js        Búsqueda web (Keenable y Wikipedia).
   motor.js           Configuración viva (catálogo, ajustes y claves cifradas en KV).
   comunidad.js       Durable Object: cuentas (solo huellas) y propuestas o votos.
+  red.js             Durable Object: red de nodos de voluntarios (WebSockets con hibernación).
+  horda.js           Modo Comunidad con AI Horde (modelos de voluntarios en línea).
+  propia.js          «Trae tu propia clave»: proveedores permitidos y motor de un solo proveedor.
   estadisticas.js    Durable Object: contadores anónimos agregados.
   catalogo.js        Catálogo de proveedores y modelos por defecto.
 landing/             Sitio público (manifiesto, descarga, donaciones). Estático, sin dependencias.

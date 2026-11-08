@@ -4,14 +4,18 @@
 
 import { MODOS, ErrorIA, prepararMensajes, completar, fusionar, disponible, probarDestino } from "./ia.js";
 import { cargarMotor, invalidarMotor } from "./motor.js";
+import { PROVEEDORES_PROPIOS, leerPropia, motorPropio, sinClave, listarModelos } from "./propia.js";
+import { motorComunidad, voluntarioDe } from "./horda.js";
 import { igualesSeguro } from "./cifrado.js";
 import { registrarEstadistica, EVENTOS_APP } from "./estadisticas.js";
 import { buscarWeb, vale_la_pena_buscar, contextoFuentes } from "./busqueda.js";
 
 export { Estadisticas } from "./estadisticas.js";
 export { Comunidad } from "./comunidad.js";
+export { RedNodos } from "./red.js";
+import { crearTokenNodo } from "./red.js";
 
-const VERSION = "3.3.0";
+const VERSION = "3.4.0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -62,6 +66,14 @@ async function enrutar(request, env, ctx) {
     // Las antiguas rutas públicas de usuarios y chats (/api/auth, /api/users, /api/chats) se
     // quitaron: la app no las usa y permitían agotar la cuota diaria de escrituras de KV.
 
+    // Red de nodos: el conector del voluntario abre aquí su WebSocket (se autentica con su primer
+    // mensaje, que lleva el token de nodo; ver red.js).
+    if (path === "/v1/red/conectar") {
+      if (!env.RED) return json({ error: "La red de nodos no está disponible" }, 503);
+      if ((await limitePorIp(env, "red-conectar:" + claveRed(request), 10)) > 0) return json({ error: "Demasiadas conexiones seguidas: espera un minuto" }, 429);
+      return redNodos(env).fetch(new Request("https://red/conectar", { headers: request.headers }));
+    }
+
     // API compatible con OpenAI (v1/*)
     if (path.startsWith("/v1/")) {
       return manejarV1(request, env, path, ctx);
@@ -86,7 +98,8 @@ function estadoProveedores(motor) {
   const cat = motor.catalogo;
   const proveedores = Object.keys(cat.providers).map((id) => ({ id, configurado: disponible(motor, id) }));
   const modos = Object.fromEntries(
-    Object.keys(MODOS).map((m) => [m, (m === "fusion" ? [...cat.fusion.panel, ...(cat.fusion.panelFallback || [])] : cat.modes[m] || []).filter((d) => disponible(motor, d.platform)).length]),
+    // Comunidad no usa el catálogo (voluntarios en línea): no aparece en este recuento.
+    Object.keys(MODOS).filter((m) => m !== "comunidad").map((m) => [m, (m === "fusion" ? [...cat.fusion.panel, ...(cat.fusion.panelFallback || [])] : cat.modes[m] || []).filter((d) => disponible(motor, d.platform)).length]),
   );
   return { ok: !motor.avisos.length, service: "libreia-api", version: VERSION, mantenimiento: !!motor.ajustes.mantenimiento, proveedores, modos, avisos: motor.avisos };
 }
@@ -206,6 +219,33 @@ async function manejarV1(request, env, path, ctx) {
     return json({ ok: true }, 200, CORS_HEADERS);
   }
 
+  // Token para conectar un nodo de la red (solo con cuenta: una cuenta responde por sus nodos).
+  if (path === "/v1/red/token" && request.method === "POST") {
+    if (!cuenta) return errorOpenAI("Para prestar tu ordenador necesitas una cuenta (gratis, sin datos personales).", 401, "account_required");
+    if (!env.RED || !env.SESSION_KEY) return errorOpenAI("La red de nodos no está disponible", 503, "server_error");
+    if ((await limitePorIp(env, "red-token:" + cuenta.id, 10, 3600000)) > 0) return errorOpenAI("Ya generaste varios tokens: espera una hora.", 429, "rate_limit_exceeded");
+    const v = await llamarComunidad(env, "/cuentas/version", { id: cuenta.id });
+    if (v.estado !== 200 || v.datos.ver == null) return errorOpenAI("No se pudo comprobar tu cuenta ahora. Inténtalo en un momento.", 503, "server_error");
+    return json({ token: await crearTokenNodo(env, cuenta.id, v.datos.ver) }, 200, CORS_HEADERS);
+  }
+
+  // «Trae tu propia clave»: probar la clave y listar sus modelos (la clave no se guarda).
+  if ((path === "/v1/propia/modelos" || path === "/v1/propia/probar") && request.method === "POST") {
+    if ((await limitePorIp(env, "propia:" + red, 12)) > 0) return errorOpenAI("Demasiadas pruebas seguidas. Espera un minuto.", 429, "rate_limit_exceeded");
+    const cuerpo = await leerCuerpo(request, 4096);
+    const datos = cuerpo && typeof cuerpo === "object" && cuerpo !== TOO_LARGE ? cuerpo : {};
+    const propia = leerPropia(path.endsWith("/modelos") ? { ...datos, modelo: datos.modelo || "x" } : datos);
+    if (propia.error) return errorOpenAI(propia.error, 400, "invalid_request_error");
+    try {
+      if (path.endsWith("/modelos")) return json({ modelos: await listarModelos(propia) }, 200, CORS_HEADERS);
+      const m = motorPropio(motor, propia);
+      const r = await probarDestino(m, m.catalogo.modes.neutral[0]);
+      return json(r.ok ? { ok: true, ms: r.ms } : { ok: false, error: sinClave(r.error, propia.clave).slice(0, 240) }, 200, CORS_HEADERS);
+    } catch (e) {
+      return errorOpenAI(sinClave(e?.status ? e.message : "No se pudo contactar con el proveedor", propia.clave), e?.status || 502, "upstream_error");
+    }
+  }
+
   if (path === "/v1/chat/completions" && request.method === "POST") {
     if (motor.ajustes.mantenimiento) {
       return errorOpenAI(motor.ajustes.mensajeMantenimiento, 503, "maintenance");
@@ -219,6 +259,15 @@ async function manejarV1(request, env, path, ctx) {
     const alias = { auto: "neutral", codestral: "tecnico" };
     const pedido = typeof cuerpo.model === "string" ? cuerpo.model : "";
     const modo = Object.hasOwn(MODOS, pedido) ? pedido : Object.hasOwn(alias, pedido) ? alias[pedido] : "neutral";
+
+    const esComunidad = modo === "comunidad";
+    if (esComunidad && motor.ajustes.modoComunidad === false) return errorOpenAI("El modo Comunidad está desactivado ahora. Elige otro modo.", 503, "mode_disabled");
+    // Clave propia del usuario: sus mensajes van a su proveedor y no gastan los cupos comunes.
+    // (El modo Comunidad usa siempre la red de voluntarios, con o sin clave propia.)
+    const propia = cuerpo.propia != null && !esComunidad ? leerPropia(cuerpo.propia) : null;
+    if (propia?.error) return errorOpenAI(propia.error, 400, "invalid_request_error");
+    if (propia && modo === "fusion") return errorOpenAI("Fusión combina varios modelos de LibreIA y no funciona con tu propia clave. Elige otro modo o desactiva tu clave.", 400, "invalid_request_error");
+    const motorUsado = propia ? motorPropio(motor, propia) : motor;
 
     // Modo prueba: sin cuenta se puede chatear con un cupo pequeño y sin Fusión.
     // Con «requerir cuenta» desactivado, la app sin sesión se trata como antes (solo límite por minuto).
@@ -237,14 +286,16 @@ async function manejarV1(request, env, path, ctx) {
     // 2) Validar la conversación antes de gastar cupo (una petición mal formada no cuenta).
     let mensajes;
     try {
-      mensajes = prepararMensajes(cuerpo.messages, modo, motor.ajustes.sistema?.[modo], { maxCaracteres: invitado ? MAX_CARACTERES_INVITADO : undefined });
+      mensajes = prepararMensajes(cuerpo.messages, modo, motor.ajustes.sistema?.[modo], { maxCaracteres: invitado && !propia ? MAX_CARACTERES_INVITADO : undefined });
     } catch (e) {
       if (e instanceof ErrorIA) return errorOpenAI(e.message, e.estado, "invalid_request_error");
       throw e;
     }
     // 3) Cupos largos, guardados de forma persistente y cerrados si el limitador falla.
     const gastados = []; // claves a devolver si la respuesta falla por culpa del servidor
-    if (invitado) {
+    if (propia) {
+      // Con su propia clave no hay cupo de prueba ni tope diario: el gasto es de su cuenta en el proveedor.
+    } else if (invitado) {
       const cupo = Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100);
       // Cupo por instalación (si la app la manda) y un tope por red algo mayor: varias personas
       // detrás de la misma IP (redes móviles con CGNAT) no se quedan sin prueba entre ellas.
@@ -276,7 +327,7 @@ async function manejarV1(request, env, path, ctx) {
       let busqueda = null;
       const ultimo = mensajes[mensajes.length - 1].content;
       if (cuerpo.web !== false && motor.ajustes.busquedaWeb !== false && cuerpo.stream !== true && vale_la_pena_buscar(ultimo)) {
-        const consulta = await consultaDeBusqueda(motor, mensajes);
+        const consulta = await consultaDeBusqueda(motorUsado, mensajes);
         const r = await buscarWeb(consulta, Math.min(Math.max(Number(motor.ajustes.resultadosWeb) || 5, 1), 8));
         fuentes = r.fuentes;
         busqueda = { consulta, motor: r.motor, error: r.error };
@@ -284,21 +335,65 @@ async function manejarV1(request, env, path, ctx) {
       }
 
       const contar = (proveedor) => ctx.waitUntil(registrarEstadistica(env, request, [
-        "mensajes", `modo:${modo}`, proveedor ? `proveedor:${proveedor}` : "fallo", ...(invitado ? ["invitado"] : []),
+        "mensajes", `modo:${modo}`, proveedor ? `proveedor:${proveedor}` : "fallo", ...(invitado ? ["invitado"] : []), ...(propia ? ["clave_propia"] : []),
         ...(busqueda ? [`web:${fuentes.length ? busqueda.motor : "sin_fuentes"}`] : []),
       ]));
       // La app espera 100 s: la búsqueda ya gastó parte del tiempo, la IA usa lo que queda.
       const presupuestoMs = Math.max(20000, PRESUPUESTO_TOTAL_MS - (Date.now() - inicioPeticion));
+      if (esComunidad) {
+        // 1) Nodos LibreIA de voluntarios (si hay alguno libre). 2) Si no, AI Horde.
+        let fallosRed = null;
+        if (env.RED) {
+          try {
+            const res = await redNodos(env).fetch("https://red/pedir", {
+              method: "POST",
+              body: JSON.stringify({ mensajes, maxTokens: Math.min(Number(cuerpo.max_tokens) || 800, 800), temperatura: cuerpo.temperature, tiempoMs: Math.min(45000, presupuestoMs - 20000) }),
+            });
+            const n = await res.json();
+            if (n.ok) {
+              contar("nodo");
+              return respuestaOpenAI({ texto: n.texto, destino: { platform: `nodo LibreIA ${n.nodo}`, model: n.modelo }, fuentes, busqueda, comunidad: { voluntario: n.nodo, red: "LibreIA" } }, modo);
+            }
+            if (n.motivo !== "sin_nodos") fallosRed = n.motivo;
+          } catch (e) {
+            // Se registra y además se informa si la Horda también falla (no queda escondido detrás de ella).
+            console.error("Red de nodos:", e?.stack || e);
+            fallosRed = "error interno de la red de nodos";
+          }
+        }
+        let motorHorda;
+        try {
+          motorHorda = await motorComunidad(motor, VERSION);
+        } catch (e) {
+          console.warn("AI Horde:", e?.message || e);
+          throw new ErrorIA("No se pudo consultar la red de voluntarios de AI Horde. Inténtalo más tarde o usa otro modo.", 503, []);
+        }
+        if (!motorHorda.catalogo.modes.comunidad.length) throw new ErrorIA("Ahora mismo no hay voluntarios en línea en la red comunitaria. Inténtalo más tarde o usa otro modo.", 503, []);
+        // Con cola, un voluntario puede tardar: cada intento tiene hasta 60 s dentro del presupuesto total.
+        const restanteMs = Math.max(15000, PRESUPUESTO_TOTAL_MS - (Date.now() - inicioPeticion));
+        let r;
+        try {
+          r = await completar(motorHorda, "comunidad", mensajes, { maxTokens: Math.min(Number(cuerpo.max_tokens) || 800, 800), temperatura: cuerpo.temperature, presupuestoMs: restanteMs, tiempoIntentoMs: 60000 });
+        } catch (e) {
+          if (e instanceof ErrorIA && fallosRed) e.intentos = [{ proveedor: "nodo LibreIA", modelo: "", error: fallosRed }, ...(e.intentos || [])];
+          throw e;
+        }
+        contar("aihorde");
+        const voluntario = voluntarioDe({ x_horde: r.horda });
+        r.destino = { platform: voluntario ? `voluntario ${voluntario}` : "AI Horde", model: r.destino.model.replace(/^koboldcpp\//, "") };
+        return respuestaOpenAI({ ...r, fuentes, busqueda, comunidad: { voluntario, red: "AI Horde" } }, modo);
+      }
       if (modo === "fusion") {
         const r = await fusionar(motor, mensajes, { presupuestoMs });
         contar(r.destino?.platform);
         return respuestaOpenAI({ ...r, fuentes, busqueda }, modo);
       }
-      const r = await completar(motor, modo, mensajes, {
+      const r = await completar(motorUsado, modo, mensajes, {
         stream: cuerpo.stream === true,
         maxTokens: cuerpo.max_tokens,
         temperatura: cuerpo.temperature,
         presupuestoMs,
+        sinEnfriar: !!propia, // una clave propia mala no castiga al proveedor para los demás
       });
       contar(r.destino?.platform);
       if (r.stream) {
@@ -308,11 +403,20 @@ async function manejarV1(request, env, path, ctx) {
         h.set("X-LibreIA-Proveedor", `${r.destino.platform}/${r.destino.model}`);
         return new Response(r.stream.body, { status: 200, headers: h });
       }
+      // La app muestra «respondió tu clave (Groq) / modelo».
+      if (propia) r.destino = { platform: `tu clave (${PROVEEDORES_PROPIOS[propia.proveedor].nombre})`, model: r.destino.model };
       return respuestaOpenAI({ ...r, fuentes, busqueda }, modo);
     } catch (e) {
       // Si falló el servidor (no la petición), el mensaje de prueba se devuelve al cupo.
       if (!(e instanceof ErrorIA) || e.estado >= 500) ctx.waitUntil(Promise.all(gastados.map((k) => devolverCupo(env, k))));
       if (e instanceof ErrorIA && e.estado >= 500) ctx.waitUntil(registrarEstadistica(env, request, ["mensajes", `modo:${modo}`, "fallo"]));
+      if (e instanceof ErrorIA && propia) {
+        // Es la clave del propio usuario: se le muestra lo que dijo su proveedor (sin la clave) para
+        // que pueda arreglarlo (modelo inexistente, cuota agotada…). No se escribe en el registro.
+        const i = e.intentos?.[e.intentos.length - 1];
+        const detalle = i ? `${categoria(i.error)} (${sinClave(i.error, propia.clave).slice(0, 200)})` : e.message;
+        return errorOpenAI(`Tu clave de ${PROVEEDORES_PROPIOS[propia.proveedor].nombre} no respondió: ${detalle}`, e.estado >= 500 ? 502 : e.estado, "own_key_error");
+      }
       if (e instanceof ErrorIA) {
         // Al cliente solo le llega una categoría por proveedor; el texto del proveedor (que puede
         // incluir ids de organización o el consumo de cuota) se queda en el registro del Worker.
@@ -401,6 +505,7 @@ async function verificarSesion(env, token) {
 }
 
 const comunidad = (env) => env.COMUNIDAD.get(env.COMUNIDAD.idFromName("global"));
+const redNodos = (env) => env.RED.get(env.RED.idFromName("global"));
 async function llamarComunidad(env, ruta, datos, metodo = "POST") {
   try {
     const url = new URL("https://comunidad" + ruta);
@@ -561,10 +666,11 @@ let cacheTransparencia = null;
 async function transparencia(env, motor) {
   if (cacheTransparencia && Date.now() - cacheTransparencia.t < 300000) return cacheTransparencia.datos;
   const leer = async (fn) => { try { return await fn(); } catch { return null; } };
-  const [uso, cuentas, cadena] = await Promise.all([
+  const [uso, cuentas, cadena, nodos] = await Promise.all([
     leer(async () => (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/resumen")).json()),
     leer(async () => (await llamarComunidad(env, "/cuentas/contar", {})).datos),
     leer(async () => (await (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/valor?clave=cadena")).json()).valor),
+    leer(async () => (env.RED ? (await redNodos(env).fetch("https://red/resumen")).json() : null)),
   ]);
   const proveedores = Object.keys(motor.catalogo.providers).filter((id) => disponible(motor, id));
   const datos = {
@@ -578,6 +684,8 @@ async function transparencia(env, motor) {
     // Modo prueba (chatear sin cuenta): la app y la web lo muestran antes de entrar.
     // Registro: clave pública del captcha (null si está desactivado).
     registro: { captcha: captchaActivo(env, motor) ? env.TURNSTILE_SITEKEY : null },
+    // Modo Comunidad (AI Horde): la app lo oculta si está desactivado.
+    comunidad: { activa: motor.ajustes.modoComunidad !== false, nodos: nodos?.activos ?? null, modelosNodos: nodos?.modelos ?? [] },
     prueba: {
       activa: motor.ajustes.requerirCuenta === false || motor.ajustes.invitados !== false,
       mensajesPorHora: motor.ajustes.requerirCuenta === false ? null : Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100),
@@ -606,6 +714,7 @@ function respuestaOpenAI(r, modo) {
       proveedor: r.destino?.platform,
       modelo: r.destino?.model,
       ...(r.fusion ? { fusion: r.fusion } : {}),
+      ...(r.comunidad ? { comunidad: r.comunidad } : {}),
       // Fuentes consultadas (sin el extracto: la app solo muestra título y enlace).
       fuentes: (r.fuentes || []).map(({ n, titulo, url, dominio }) => ({ n, titulo, url, dominio })),
       ...(r.busqueda ? { busqueda: r.busqueda } : {}),

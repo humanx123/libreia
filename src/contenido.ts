@@ -3,6 +3,8 @@
 
 export const REPO_URL = "https://github.com/humanx123/libreia";
 export const CONTACT_EMAIL = "libreia@proton.me";
+// Volunteer node connector (served with the web app and the API).
+export const NODE_SCRIPT_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs";
 
 export const PRIVACY_POINTS = `
 <ul class="privacy-list">
@@ -10,6 +12,7 @@ export const PRIVACY_POINTS = `
   <li><b>Tus chats viven solo en este dispositivo.</b> No se guardan en ningún servidor. Puedes exportarlos o borrarlos en Configuración.</li>
   <li><b>No guardamos</b> tu IP, tu nombre ni lo que escribes. Solo contamos números agregados (cuántos usuarios y mensajes) y puedes desactivarlo.</li>
   <li><b>El correo es solo tu nombre de usuario:</b> no lo verificamos ni te escribiremos nunca.</li>
+  <li><b>Quién lee cada mensaje para responderlo:</b> el proveedor del modelo (o el de tu propia clave, si la usas). En el modo <b>Comunidad</b> lo lee el ordenador de un voluntario, que podría verlo: no lo uses para datos personales.</li>
 </ul>`;
 
 export const RECOVERY_WARNING = `
@@ -78,6 +81,20 @@ export const ABOUT_HTML = `
     </div>
     <p class="muted">Las donaciones son voluntarias y pagan servidores y modelos mejores para todas las personas.
       ¿Quieres donar por otro medio? Escríbenos a <a href="mailto:${CONTACT_EMAIL}?subject=Donaci%C3%B3n%20a%20LibreIA">${CONTACT_EMAIL}</a>.</p>
+  </section>
+
+  <section class="about-block">
+    <h2>Suma cómputo: IA hecha por personas</h2>
+    <p><b>🔑 Trae tu propia clave.</b> Si tienes una clave gratuita de Groq, Google AI Studio, OpenRouter u otro proveedor,
+      ponla en <button type="button" class="link-btn inline" data-open-settings>Configuración</button>. Tus mensajes irán con tu clave y
+      el cupo común quedará para quien no tiene. La clave es solo tuya: se guarda cifrada en tu dispositivo y no se comparte.</p>
+    <p><b>🧪 Modo Comunidad (experimental).</b> Elige «Comunidad» en el selector de modo y te responderá un modelo abierto que
+      corre en el ordenador de un voluntario de la red <a href="https://aihorde.net" target="_blank" rel="noopener noreferrer" data-external>AI Horde</a>.
+      Es más lento y el voluntario puede ver los mensajes: no lo uses para datos personales.</p>
+    <p><b>💻 Presta tu ordenador.</b> Con una tarjeta gráfica (o incluso solo el procesador, con modelos pequeños) puedes servir modelos a
+      todo el mundo: instala <a href="https://github.com/LostRuins/koboldcpp" target="_blank" rel="noopener noreferrer" data-external>KoboldCpp</a>,
+      carga un modelo instruct (Gemma, Qwen o Llama) y actívalo como trabajador de AI Horde. Cada respuesta que das suma
+      «kudos», que dan prioridad a quien los tiene.</p>
   </section>
 
   <section class="about-block">

@@ -19,6 +19,7 @@ export const AJUSTES_POR_DEFECTO = {
   requerirCuenta: true,
   invitados: true,
   captchaRegistro: true,
+  modoComunidad: true,
   mensajesInvitado: 10,
   mensajesDiaCuenta: 300,
   resultadosWeb: 5,

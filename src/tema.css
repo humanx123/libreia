@@ -31,14 +31,14 @@ body{background:
 *::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-thumb{background:#3a4354}
 
 /* ---------- botones de la interfaz: mono, mayúsculas, sombra dura ---------- */
-:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
+:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,.own-model button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
    .support-actions button,.cta-row button,.guest-bar button,.guest-btn,.suggestions button,.web-bar button){
   font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:12px;
   border:2px solid var(--paper);background:var(--panel);color:var(--paper);box-shadow:4px 4px 0 var(--paper);
   transition:transform .1s ease,box-shadow .1s ease,background .1s ease}
-:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
+:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,.own-model button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
    .support-actions button,.cta-row button,.guest-bar button,.guest-btn,.suggestions button,.web-bar button):hover{transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--paper)}
-:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
+:is(.new-chat,.menu-btn,.hide-btn,.back-btn,.primary,.btn-row button,.own-model button,[id=logoutBtn],[id=exitGuest],.danger-btn,.don-actions button,
    .support-actions button,.cta-row button,.guest-bar button,.guest-btn,.suggestions button,.web-bar button):active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--paper)}
 /* colores: misma especificidad que la regla base (0,1,1) y declarados después, así ganan */
 button.primary,button.new-chat,button.back-btn,.don-actions button.primary,.support-actions button.primary,.cta-row button.primary{background:var(--cyan);color:var(--bg)}
@@ -228,3 +228,22 @@ dialog::backdrop{background:#000c;backdrop-filter:none}
 /* Captcha del registro (Turnstile): reserva su alto para que el formulario no salte al cargarlo */
 .captcha-box{min-height:65px;margin-top:12px}
 .captcha-box.hidden{display:none}
+/* Clave propia */
+.own-bar{background:var(--cyan)}
+.own-bar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.own-key label{display:grid;gap:4px;font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--cyan)}
+.own-key label.check-row{display:flex;font:inherit;text-transform:none;letter-spacing:0;color:var(--paper)}
+.own-key select,.own-key input:not([type=checkbox]){font:400 14px var(--body,inherit);text-transform:none;letter-spacing:0}
+.own-model{display:flex;gap:6px}.own-model input{flex:1;min-width:0}.own-model button{white-space:nowrap}
+.muted.small,p.small{font-size:12px}
+.own-key select{border:2px solid var(--line);background:var(--bg);color:var(--paper);font:400 13px var(--mono);padding:10px 8px;width:100%}
+.own-key select:focus{outline:none;border-color:var(--cyan)}
+.own-key select option{background:var(--bg);color:var(--paper)}
+.own-model button{box-shadow:3px 3px 0 var(--paper);padding:0 10px}
+#ownHelp a{color:var(--cyan)}
+/* Nodo LibreIA */
+.node-guide summary{cursor:pointer;font:700 12px var(--mono);text-transform:uppercase;color:var(--cyan);margin:6px 0}
+.node-guide ol{padding-left:18px;display:grid;gap:6px}
+.node-guide a,.node-guide code{color:var(--cyan)}
+.node-cmd{margin:10px 0 6px;padding:10px;border:2px solid var(--cyan);background:var(--bg);white-space:pre-wrap;word-break:break-all;font:400 12px/1.5 var(--mono);color:var(--paper)}
+[id=nodeTokenBtn]{font-family:var(--mono);font-weight:700;text-transform:uppercase;font-size:12px;border:2px solid var(--paper);background:var(--cyan);color:var(--bg);box-shadow:4px 4px 0 var(--paper);padding:10px 12px}

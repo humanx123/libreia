@@ -500,6 +500,7 @@ async function api(request, env, ruta, url) {
       requerirCuenta: a.requerirCuenta !== false,
       invitados: a.invitados !== false,
       captchaRegistro: a.captchaRegistro !== false,
+      modoComunidad: a.modoComunidad !== false,
       mensajesInvitado: Math.min(Math.max(Math.floor(Number(a.mensajesInvitado)) || 10, 1), 100),
       mensajesDiaCuenta: Math.min(Math.max(Math.floor(Number(a.mensajesDiaCuenta)) || 300, 10), 5000),
       resultadosWeb: Math.min(Math.max(Math.floor(Number(a.resultadosWeb)) || 5, 1), 8),
@@ -536,6 +537,21 @@ async function api(request, env, ruta, url) {
     const r = await comunidad(env, "/propuestas/borrar", { propuesta });
     await registrar(env, request, usuario, `Propuesta #${Number(propuesta)} borrada`);
     return json(r);
+  }
+
+  // --- red de nodos de voluntarios (modo Comunidad)
+  if (ruta === "/api/red" && metodo === "GET") {
+    if (!env.RED) return json({ nodos: [], bloqueados: [], aviso: "Falta el binding RED" });
+    return json(await (await env.RED.get(env.RED.idFromName("global")).fetch("https://red/admin/lista")).json());
+  }
+  if (ruta === "/api/red/bloquear" && metodo === "POST") {
+    if (!env.RED) return json({ error: "Falta el binding RED" }, 503);
+    const { nodo, motivo, desbloquear } = await request.json().catch(() => ({}));
+    if (!desbloquear && !/^[0-9a-f]{16}$/.test(String(nodo || ""))) return json({ error: "Nodo inválido" }, 400);
+    if (desbloquear && !/^[0-9a-f]{8}$/.test(String(desbloquear))) return json({ error: "Cuenta inválida" }, 400);
+    const r = await env.RED.get(env.RED.idFromName("global")).fetch("https://red/admin/bloquear", { method: "POST", body: JSON.stringify({ nodo, motivo: String(motivo || "").slice(0, 120), desbloquear }) });
+    await registrar(env, request, usuario, desbloquear ? `Nodos de la cuenta ${desbloquear}… desbloqueados` : `Nodo ${nodo} bloqueado${motivo ? ` (${String(motivo).slice(0, 60)})` : ""}`);
+    return json(await r.json(), r.status);
   }
 
   // --- registro

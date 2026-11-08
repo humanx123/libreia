@@ -22,7 +22,9 @@
     // Estadísticas anónimas (solo lectura de agregados desde el panel).
     { "name": "ESTADISTICAS", "class_name": "Estadisticas", "script_name": "libreia-api" },
     // Moderación de propuestas y número de cuentas (nunca datos de las cuentas).
-    { "name": "COMUNIDAD", "class_name": "Comunidad", "script_name": "libreia-api" }
+    { "name": "COMUNIDAD", "class_name": "Comunidad", "script_name": "libreia-api" },
+    // Red de nodos de voluntarios: ver y bloquear nodos (nunca ve mensajes).
+    { "name": "RED", "class_name": "RedNodos", "script_name": "libreia-api" }
   ] },
   // Secretos (wrangler secret bulk): MASTER_KEY, INTERNAL_TOKEN, SESSION_SECRET,
   // ADMIN_USER, ADMIN_PASS_HASH, ADMIN_PASS_SALT.

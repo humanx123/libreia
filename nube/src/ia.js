@@ -30,6 +30,12 @@ export const MODOS = {
       "Da soluciones correctas y concretas, con código completo en bloques ``` con el lenguaje indicado, " +
       "y explica brevemente las decisiones importantes.",
   },
+  comunidad: {
+    nombre: "Comunidad",
+    sistema:
+      "Eres LibreIA, un asistente útil e imparcial. Responde siempre en el idioma del usuario, de forma clara y directa. " +
+      "Si no sabes algo, dilo. No inventes datos ni fuentes.",
+  },
   fusion: {
     nombre: "Fusión",
     sistema:
@@ -129,7 +135,8 @@ function cabeceras(motor, p) {
 async function llamar(motor, destino, cuerpo, tiempoMs = TIEMPO_INTENTO_MS) {
   const p = proveedor(motor, destino.platform);
   const extra = {};
-  if (destino.platform === "groq") {
+  // familia: con una clave propia el destino se llama "propia:groq", pero es Groq igualmente.
+  if ((p.familia || destino.platform) === "groq") {
     // gpt-oss razona antes de responder y ese razonamiento gasta max_tokens.
     if (destino.model.includes("gpt-oss")) extra.reasoning_effort = "low";
     // qwen en Groq: que no devuelva el bloque <think> dentro del contenido.
@@ -215,7 +222,7 @@ function parametros(maxTokens, temperatura) {
  * Recorre la lista de un modo hasta que un proveedor responde.
  * Con stream=true devuelve la Response SSE del proveedor tal cual.
  */
-export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS, sinEnfriar = false } = {}) {
+export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS, sinEnfriar = false, tiempoIntentoMs = TIEMPO_INTENTO_MS } = {}) {
   const lista = propio(motor.catalogo.modes, modo) ? motor.catalogo.modes[modo] : null;
   if (!lista) throw new ErrorIA(`Modo desconocido: ${modo}`, 400, []);
   const cuerpo = { messages: mensajes, ...parametros(maxTokens, temperatura), stream };
@@ -233,14 +240,14 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
       intentos.push({ proveedor: destino.platform, modelo: destino.model, error: "sin tiempo: se agotó el presupuesto de la respuesta" });
       break;
     }
-    const tiempo = Math.min(TIEMPO_INTENTO_MS, restante);
+    const tiempo = Math.min(tiempoIntentoMs, restante);
     try {
       if (stream) {
         const res = await llamar(motor, destino, cuerpo, tiempo);
         return { stream: res, destino };
       }
       const { texto, datos } = await pedirTexto(motor, destino, cuerpo, tiempo);
-      return { texto, destino, ms: Date.now() - inicio, uso: datos.usage || null, fin: datos.choices?.[0]?.finish_reason || "stop" };
+      return { texto, destino, ms: Date.now() - inicio, uso: datos.usage || null, fin: datos.choices?.[0]?.finish_reason || "stop", horda: datos.x_horde || null };
     } catch (e) {
       intentos.push({ proveedor: destino.platform, modelo: destino.model, error: describirError(e), ms: Date.now() - inicio });
       // Una tarea auxiliar (p. ej. reescribir la consulta con poco tiempo) no castiga al proveedor.

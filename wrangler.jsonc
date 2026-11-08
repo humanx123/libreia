@@ -16,12 +16,14 @@
     // Estadísticas anónimas agregadas (SQLite en el Durable Object, plan gratuito).
     { "name": "ESTADISTICAS", "class_name": "Estadisticas" },
     // Cuentas (solo huellas cifradas) y propuestas/votos de la comunidad.
-    { "name": "COMUNIDAD", "class_name": "Comunidad" }
+    { "name": "COMUNIDAD", "class_name": "Comunidad" },
+    { "name": "RED", "class_name": "RedNodos" }
   ] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Limitador"] },
     { "tag": "v2", "new_sqlite_classes": ["Estadisticas"] },
-    { "tag": "v3", "new_sqlite_classes": ["Comunidad"] }
+    { "tag": "v3", "new_sqlite_classes": ["Comunidad"] },
+    { "tag": "v4", "new_sqlite_classes": ["RedNodos"] }
   ],
   "vars": {
     "REPO": "https://github.com/humanx123/libreia",

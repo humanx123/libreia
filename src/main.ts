@@ -4,7 +4,8 @@ import "./tema.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE, GUEST_NS } from "./api";
-import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING } from "./contenido";
+import { OWN_PROVIDERS, loadOwnKey, saveOwnKey, updateOwnKey, clearOwnKey, ownKeyForRequest, keyHint } from "./propia";
+import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING, NODE_SCRIPT_URL } from "./contenido";
 
 type Role = "user" | "assistant";
 type Source = { n: number; titulo: string; url: string; dominio: string };
@@ -18,7 +19,17 @@ const MODES = [
   { id: "libre", label: "Libre" },
   { id: "tecnico", label: "Técnico" },
   { id: "fusion", label: "Fusión" },
+  { id: "comunidad", label: "Comunidad 🧪" },
 ];
+// Community mode: an open model running on a volunteer's computer (AI Horde). The volunteer can read
+// the messages, so it is only used after the person accepts this notice.
+const COMMUNITY_NOTICE =
+  "Modo Comunidad (experimental)\n\n" +
+  "Responde un modelo abierto que corre en el ordenador de un voluntario de la red AI Horde: IA hecha por personas, sin empresas.\n\n" +
+  "• Es más lento (de 10 s a 1 min) y los modelos son más pequeños.\n" +
+  "• IMPORTANTE: el voluntario que ejecuta el modelo PUEDE VER tu mensaje. No escribas datos personales en este modo.\n\n" +
+  "¿Activarlo?";
+let communityOn = true; // the server can switch the mode off (see /transparencia)
 
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -45,6 +56,7 @@ let model = localStorage.getItem("libreia.model") || "neutral";
 if (!MODES.some((m) => m.id === model)) model = "neutral";
 let sending = false;
 let pendingChatId: string | null = null;
+let pendingModel = ""; // mode of the message being answered (the waiting text depends on it)
 let view: View = "chat";
 
 // Chats are stored per account on this device (shared devices keep them apart).
@@ -285,6 +297,10 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
 
     <div id="chatView" class="chat-view">
       <div id="messages" class="messages"></div>
+      <div id="ownBar" class="guest-bar own-bar hidden">
+        <span>🔑 <b>Tu clave</b> · <span id="ownBarText">no gasta el cupo común</span></span>
+        <button type="button" data-open-settings>Cambiar</button>
+      </div>
       <div id="guestBar" class="guest-bar hidden">
         <span>🧪 <b>Modo prueba</b> · <span id="guestQuota">cupo limitado por hora</span> · sin Fusión</span>
         <button type="button" data-auth="registro">Crear cuenta gratis</button>
@@ -307,6 +323,20 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     <label class="check-row"><input id="webInput" type="checkbox"> Búsqueda web con fuentes reales</label>
     <label class="check-row"><input id="statsInput" type="checkbox"> Contar mi uso de forma anónima (solo números, nunca contenido)</label>
 
+    <h3>Tu propia clave de IA (opcional)</h3>
+    <p class="muted">¿Tienes una clave de Groq, Google AI Studio, OpenRouter u otro proveedor? Úsala aquí y tus mensajes no gastarán el cupo común, que queda para quien no tiene. Tampoco cuentan para tu tope diario ni para el cupo de prueba.</p>
+    <p class="muted small">🔒 Se guarda <b>cifrada solo en este dispositivo</b>. Pasa por el servidor de LibreIA únicamente para reenviar cada mensaje a tu proveedor, y no se guarda allí (el código es abierto). Es solo tuya: no se comparte con nadie. Al cerrar sesión se borra de este dispositivo.</p>
+    <form id="ownKeyForm" class="stack own-key">
+      <label>Proveedor<select id="ownProv">${Object.entries(OWN_PROVIDERS).map(([id, p]) => `<option value="${id}">${p.nombre} — ${p.nota}</option>`).join("")}</select></label>
+      <p class="muted small" id="ownHelp"></p>
+      <label>Clave<input id="ownKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="400" placeholder="Pega aquí tu clave"></label>
+      <label>Modelo<span class="own-model"><input id="ownModel" list="ownModels" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="160" placeholder="Nombre del modelo"><button type="button" id="ownList">Ver modelos</button></span></label>
+      <datalist id="ownModels"></datalist>
+      <label class="check-row"><input id="ownOn" type="checkbox" checked> Usar mi clave en mis chats</label>
+      <div class="btn-row"><button class="primary" type="submit">Guardar y probar</button><button type="button" id="ownRemove" class="hidden">Quitar mi clave</button></div>
+      <p id="ownStatus" class="status-text" role="status"></p>
+    </form>
+
     <h3>Mis chats</h3>
     <p class="muted">Tus chats solo existen en este dispositivo. Haz copias tú mismo/a: nadie más las tiene.</p>
     <div class="btn-row">
@@ -324,6 +354,25 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       <button type="button" id="exitGuest">Salir del modo prueba</button>
     </div>
     <div id="accountSection">
+    <h3>Presta tu ordenador (nodo LibreIA)</h3>
+    <p class="muted">¿Tienes un modelo local (Ollama, LM Studio, llama.cpp o KoboldCpp)? Conéctalo a la red y responderá a quien use el modo <b>Comunidad</b>. El conector abre una conexión de salida: no hay que abrir puertos.</p>
+    <details class="node-guide">
+      <summary>Cómo conectar mi nodo</summary>
+      <ol class="muted small">
+        <li>Instala <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" data-external>Node.js 22 o superior</a> y un servidor local con un modelo <i>instruct</i>. Por ejemplo, <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" data-external>Ollama</a> con <code>ollama pull qwen3:4b</code>.</li>
+        <li>Descarga el conector: <a href="${NODE_SCRIPT_URL}" target="_blank" rel="noopener noreferrer" data-external>libreia-nodo.mjs</a> (código abierto, léelo si quieres).</li>
+        <li>Genera tu token y ejecuta el comando que aparece abajo. Antes de recibir preguntas, tu nodo responderá una de control.</li>
+      </ol>
+      <p class="muted small">⚠️ Tu nodo verá las preguntas que responde. El conector no las guarda ni las muestra; trátalas con respeto. Si un nodo responde mal o abusa, la moderación puede bloquearlo.</p>
+      <button type="button" id="nodeTokenBtn">Generar mi token de nodo</button>
+      <div id="nodeTokenBox" class="hidden">
+        <pre class="node-cmd"><code id="nodeCmd"></code></pre>
+        <div class="btn-row"><button type="button" id="nodeCopy">Copiar comando</button></div>
+        <p class="muted small">El token deja de valer si cierras sesión en todos tus dispositivos o cambias la contraseña. Máximo 3 nodos por cuenta.</p>
+      </div>
+      <p id="nodeStatus" class="status-text" role="status"></p>
+    </details>
+
     <h3>Mi cuenta</h3>
     <p class="muted">Sesión: <b id="accountEmail"></b> (el correo solo se guarda en este dispositivo).</p>
     <button type="button" id="logoutBtn">Cerrar sesión</button>
@@ -640,14 +689,24 @@ function adoptGuestChats(ns: string) {
     /* broken trial data: leave it where it is */
   }
 }
+let ownActive = false; // the user's own key is saved and switched on
 function applyGuestUi() {
   const guest = session.guest;
-  $("guestBar").classList.toggle("hidden", !guest || view !== "chat");
+  // With an own key the trial quota does not apply, so its bar gives way to the own-key bar.
+  $("guestBar").classList.toggle("hidden", !guest || ownActive || view !== "chat");
+  $("ownBar").classList.toggle("hidden", !ownActive || view !== "chat");
   const pick = $<HTMLSelectElement>("modelPicker");
   const fusion = pick.querySelector<HTMLOptionElement>("option[value=fusion]")!;
-  fusion.disabled = guest;
-  fusion.textContent = guest ? "Fusión (con cuenta)" : "Fusión";
-  if (guest && model === "fusion") {
+  const community = pick.querySelector<HTMLOptionElement>("option[value=comunidad]")!;
+  community.hidden = community.disabled = !communityOn;
+  if (!communityOn && model === "comunidad") {
+    model = "neutral";
+    pick.value = model;
+  }
+  // Fusion combines several LibreIA models, so it needs an account and does not use an own key.
+  fusion.disabled = guest || ownActive;
+  fusion.textContent = guest ? "Fusión (con cuenta)" : ownActive ? "Fusión (sin tu clave)" : "Fusión";
+  if (fusion.disabled && model === "fusion") {
     model = "neutral";
     pick.value = model;
   }
@@ -657,6 +716,7 @@ function applyGuestUi() {
 async function loadTrialInfo(): Promise<boolean> {
   try {
     const t = await api("/transparencia", { auth: "app" });
+    communityOn = t?.comunidad?.activa !== false;
     const key = t?.registro?.captcha;
     captchaKey = typeof key === "string" && /^[\w-]{10,100}$/.test(key) ? key : null;
     if (authMode === "registro" && !$("authView").classList.contains("hidden")) void showCaptcha();
@@ -678,6 +738,9 @@ function logout() {
   // Closing the session also invalidates the token on the server (in case it was copied).
   if (session.token) api("/cuenta/salir", { body: {}, timeoutMs: 8000 }).catch(() => {});
   session.clear();
+  // The own provider key belongs to whoever saved it: it does not stay for the next person.
+  clearOwnKey();
+  ownActive = false;
   chats = [];
   messages = [];
   settingsDialog.close();
@@ -716,7 +779,7 @@ function renderMessages() {
         return `<div class="message ${m.role}${m.error ? " error" : ""}${m.cta ? " trial" : ""}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${cta}${meta}</div></div>`;
       })
       .join("") +
-    (pendingChatId === chatId ? `<div class="thinking"><i></i>${prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}</div>` : "");
+    (pendingChatId === chatId ? `<div class="thinking"><i></i>${pendingModel === "comunidad" ? "Esperando a un voluntario de la comunidad…" : prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}</div>` : "");
   messagesEl.querySelectorAll(".message.assistant pre").forEach((pre) => {
     const b = document.createElement("button");
     b.className = "copy-code";
@@ -799,6 +862,7 @@ async function sendMessage(prompt: string) {
   $("send").classList.add("busy");
   const targetChatId = chatId;
   const usedModel = model;
+  pendingModel = usedModel;
   // The chat is looked up again when the reply arrives: signing in/up meanwhile reloads the chats
   // (guest chats move to the account), so the reply goes to the chat object that exists then.
   const reply = (m: Message) => {
@@ -818,6 +882,7 @@ async function sendMessage(prompt: string) {
     renderMessages();
     renderChatList();
     const target = chat.messages;
+    const propia = await ownKeyForRequest();
     const r = await api("/chat/completions", {
       body: {
         model: usedModel,
@@ -825,6 +890,7 @@ async function sendMessage(prompt: string) {
         stream: false,
         max_tokens: 2000,
         web: prefs.web,
+        ...(propia && usedModel !== "fusion" && usedModel !== "comunidad" ? { propia } : {}),
       },
       timeoutMs: 100000,
     });
@@ -842,7 +908,7 @@ async function sendMessage(prompt: string) {
     }
   } catch (e) {
     const err = e as ApiError;
-    const needsAccount = session.guest && (err.status === 401 || err.status === 403 || (err.status === 429 && /prueba/i.test(err.message)));
+    const needsAccount = session.guest && err.code !== "own_key_error" && (err.status === 401 || err.status === 403 || (err.status === 429 && /prueba/i.test(err.message)));
     reply({ role: "assistant", content: needsAccount ? `🧪 ${err.message}` : `❌ No se pudo obtener respuesta.\n\n${err.message}`, error: true, cta: needsAccount });
     if (err.status === 401 && /sesi[oó]n/i.test(err.message)) {
       alert(err.message);
@@ -880,6 +946,13 @@ $("prompt").addEventListener("input", () => {
 const picker = $<HTMLSelectElement>("modelPicker");
 picker.value = model;
 picker.addEventListener("change", () => {
+  if (picker.value === "comunidad" && localStorage.getItem("libreia.comunidadOk") !== "1") {
+    if (!confirm(COMMUNITY_NOTICE)) {
+      picker.value = model;
+      return;
+    }
+    localStorage.setItem("libreia.comunidadOk", "1");
+  }
   model = picker.value;
   localStorage.setItem("libreia.model", model);
 });
@@ -992,8 +1065,115 @@ function openSettings() {
   $("guestSection").classList.toggle("hidden", !session.guest);
   $("accountSection").classList.toggle("hidden", session.guest);
   $("settingsStatus").textContent = "";
+  void fillOwnKeyForm();
   settingsDialog.showModal();
 }
+
+// ---------------------------------------------------------------- volunteer node
+$("nodeTokenBtn").addEventListener("click", async () => {
+  const st = $("nodeStatus");
+  st.textContent = "Generando…";
+  try {
+    const r = await api<{ token: string }>("/red/token", { body: {}, timeoutMs: 15000 });
+    if (!/^n1\.[0-9a-f.]+$/.test(r.token || "")) throw new Error("Respuesta inesperada del servidor");
+    $("nodeCmd").textContent = `node libreia-nodo.mjs --token ${r.token} --nombre TuAlias`;
+    $("nodeTokenBox").classList.remove("hidden");
+    st.textContent = "✓ Token listo. Cambia «TuAlias» por el nombre público de tu nodo (o quítalo). Si usas LM Studio añade --api http://127.0.0.1:1234/v1.";
+  } catch (ex) {
+    st.textContent = (ex as Error).message;
+  }
+});
+$("nodeCopy").addEventListener("click", () => {
+  copyText($("nodeCmd").textContent || "").then(
+    () => ($("nodeStatus").textContent = "✓ Comando copiado. Guárdalo como una contraseña: quien lo tenga puede conectar un nodo a tu nombre."),
+    () => ($("nodeStatus").textContent = "No se pudo copiar: selecciónalo a mano."),
+  );
+});
+
+// ---------------------------------------------------------------- own provider key
+const ownProv = $<HTMLSelectElement>("ownProv");
+function ownHelp() {
+  const p = OWN_PROVIDERS[ownProv.value];
+  $("ownHelp").innerHTML = `Consigue una clave en <a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer" data-external>${esc(p.url.replace(/^https:\/\//, ""))}</a> (${esc(p.nota)}).`;
+}
+async function fillOwnKeyForm() {
+  const k = await loadOwnKey();
+  ownProv.value = k?.proveedor || "groq";
+  ownHelp();
+  $<HTMLInputElement>("ownKey").value = "";
+  $<HTMLInputElement>("ownKey").placeholder = k ? `Guardada (${keyHint(k.clave)}). Pega otra para cambiarla` : "Pega aquí tu clave";
+  $<HTMLInputElement>("ownModel").value = k?.modelo || OWN_PROVIDERS[ownProv.value].modelo;
+  $<HTMLInputElement>("ownOn").checked = k ? k.activa : true;
+  $("ownRemove").classList.toggle("hidden", !k);
+  $("ownStatus").textContent = k ? (k.activa ? `✓ Usando tu clave de ${OWN_PROVIDERS[k.proveedor].nombre}.` : "Tu clave está guardada pero desactivada.") : "";
+}
+/** The key typed in the form, or the saved one when the field is empty and the provider is the same. */
+async function ownKeyInForm(): Promise<string> {
+  const typed = $<HTMLInputElement>("ownKey").value.trim();
+  if (typed) return typed;
+  const k = await loadOwnKey();
+  return k && k.proveedor === ownProv.value ? k.clave : "";
+}
+async function refreshOwnState() {
+  const k = await loadOwnKey();
+  ownActive = !!(k && k.activa && k.modelo);
+  if (k) $("ownBarText").textContent = `${OWN_PROVIDERS[k.proveedor].nombre} · ${k.modelo}`;
+  applyGuestUi();
+}
+ownProv.addEventListener("change", async () => {
+  ownHelp();
+  const k = await loadOwnKey();
+  $<HTMLInputElement>("ownModel").value = k?.proveedor === ownProv.value ? k.modelo : OWN_PROVIDERS[ownProv.value].modelo;
+  $("ownModels").innerHTML = "";
+});
+$("ownList").addEventListener("click", async () => {
+  const st = $("ownStatus");
+  const clave = await ownKeyInForm();
+  if (!clave) return void (st.textContent = "Pega primero tu clave.");
+  st.textContent = "Consultando los modelos de tu proveedor…";
+  try {
+    const r = await api<{ modelos: string[] }>("/propia/modelos", { body: { proveedor: ownProv.value, clave }, timeoutMs: 15000 });
+    const lista = Array.isArray(r.modelos) ? r.modelos.filter((m) => typeof m === "string") : [];
+    $("ownModels").innerHTML = lista.map((m) => `<option value="${esc(m)}"></option>`).join("");
+    st.textContent = lista.length ? `${lista.length} modelos disponibles: toca el campo «Modelo» para elegir.` : "El proveedor no devolvió modelos de chat.";
+    if (lista.length && !$<HTMLInputElement>("ownModel").value) $<HTMLInputElement>("ownModel").value = lista[0];
+  } catch (ex) {
+    st.textContent = (ex as Error).message;
+  }
+});
+$("ownKeyForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const st = $("ownStatus");
+  const clave = await ownKeyInForm();
+  const modelo = $<HTMLInputElement>("ownModel").value.trim().replace(/^models\//, "");
+  if (!clave) return void (st.textContent = "Pega tu clave.");
+  if (!/^[\x21-\x7e]{8,400}$/.test(clave)) return void (st.textContent = "La clave no parece válida (sin espacios, mínimo 8 caracteres).");
+  if (!modelo) return void (st.textContent = "Escribe un modelo o toca «Ver modelos».");
+  st.textContent = "Probando tu clave con un mensaje corto…";
+  try {
+    const r = await api<{ ok: boolean; error?: string; ms?: number }>("/propia/probar", { body: { proveedor: ownProv.value, clave, modelo }, timeoutMs: 40000 });
+    if (!r.ok) return void (st.textContent = `✗ Tu proveedor respondió con un error: ${r.error || "desconocido"}. No se guardó.`);
+    await saveOwnKey({ proveedor: ownProv.value, clave, modelo, activa: $<HTMLInputElement>("ownOn").checked });
+    await refreshOwnState();
+    await fillOwnKeyForm();
+    st.textContent = `✓ Funciona (${((r.ms || 0) / 1000).toFixed(1)} s) y quedó guardada cifrada en este dispositivo.`;
+  } catch (ex) {
+    st.textContent = (ex as Error).message;
+  }
+});
+$("ownOn").addEventListener("change", async () => {
+  if (!(await loadOwnKey())) return; // not saved yet: the switch applies when saving
+  updateOwnKey({ activa: $<HTMLInputElement>("ownOn").checked });
+  await refreshOwnState();
+  await fillOwnKeyForm();
+});
+$("ownRemove").addEventListener("click", async () => {
+  if (!confirm("¿Quitar tu clave de este dispositivo? Volverás a usar el cupo común.")) return;
+  clearOwnKey();
+  await refreshOwnState();
+  await fillOwnKeyForm();
+  $("ownStatus").textContent = "Clave quitada de este dispositivo.";
+});
 $("webInput").addEventListener("change", (e) => (prefs.web = (e.target as HTMLInputElement).checked));
 $("statsInput").addEventListener("change", (e) => (prefs.stats = (e.target as HTMLInputElement).checked));
 $("logoutBtn").addEventListener("click", () => {
@@ -1171,6 +1351,7 @@ setAuthMode(session.token ? "entrar" : "registro");
 const params = new URLSearchParams(location.search);
 if (params.has("probar") || params.has("cuenta")) history.replaceState(null, "", location.pathname);
 const trial = loadTrialInfo();
+void refreshOwnState();
 if (session.active) startApp();
 else if (params.has("probar")) {
   // Only start trial mode if the server allows it (otherwise show sign-up).

@@ -63,7 +63,9 @@ export const HTML = `<!doctype html>
     <div class="row-head"><h2>Propuestas de la comunidad</h2><button id="recargarProp" class="ghost">Actualizar</button></div>
     <p class="muted">Las personas usuarias proponen y votan (una cuenta, un voto). Aquí puedes marcar el estado y dar una respuesta pública. No se ve quién propuso ni quién votó.</p>
     <div id="propLista" class="list"></div>
-  </section>
+    <div class="row-head"><h2>Red de nodos (voluntarios)</h2><button id="recargarRed" class="ghost">Actualizar</button></div>
+    <p class="muted">Ordenadores de voluntarios que responden en el modo Comunidad. Solo pasan a «activo» tras responder bien una pregunta de control. Bloquear un nodo cierra todos los nodos de esa cuenta y le impide volver a conectarse. Aquí nunca se ven mensajes.</p>
+    <div id="redLista" class="list"></div>
 
   <section id="t-claves" class="tab hidden">
     <h2>Claves de proveedores</h2>
@@ -103,6 +105,7 @@ export const HTML = `<!doctype html>
       <label class="check"><input id="aCuenta" type="checkbox"> Exigir cuenta para chatear (si se desactiva, también funcionan las versiones antiguas de la app)</label>
       <label class="check"><input id="aInvitados" type="checkbox"> Modo prueba: permitir chatear sin cuenta (sin Fusión, con cupo por IP)</label>
       <label class="check"><input id="aCaptcha" type="checkbox"> Captcha (Cloudflare Turnstile) al crear cuenta: frena el registro masivo con bots</label>
+      <label class="check"><input id="aComunidad" type="checkbox"> Modo Comunidad (experimental): modelos de voluntarios de AI Horde (el voluntario puede ver los mensajes; la app lo avisa)</label>
       <label>Mensajes de prueba por hora y por instalación (1–100)<input id="aInvN" type="number" min="1" max="100"></label>
       <label>Máximo de mensajes al día por cuenta (10–5000; Fusión cuenta por 4)<input id="aDiaN" type="number" min="10" max="5000"></label>
       <label class="check"><input id="aWeb" type="checkbox"> Búsqueda web en las respuestas (fuentes reales citadas)</label>
@@ -252,7 +255,7 @@ let estado = null;
 function abrir(tab) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "t-" + tab));
-  ({ estado: cargarEstado, uso: cargarUso, comunidad: cargarPropuestas, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
+  ({ estado: cargarEstado, uso: cargarUso, comunidad: () => { cargarPropuestas(); cargarRed(); }, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) abrir(b.dataset.tab); });
 
@@ -353,6 +356,39 @@ async function cargarPropuestas() {
   } catch (e) { aviso("No se pudieron leer las propuestas: " + e.message, "bad"); }
 }
 $("recargarProp").addEventListener("click", cargarPropuestas);
+
+async function cargarRed() {
+  try {
+    const { nodos, bloqueados, aviso: av } = await api("/api/red");
+    const fecha = (t) => (t ? new Date(t).toLocaleString() : "—");
+    $("redLista").innerHTML = (av ? '<p class="muted">' + esc(av) + "</p>" : "")
+      + (nodos.map((n) =>
+        '<div class="item" data-nodo="' + esc(n.nodo || "") + '"><div class="item-head"><b>' + esc(n.nombre || "anónimo") + '</b><span class="badge ' + (n.estado === "activo" ? "ok" : "warn") + '">' + esc(n.estado) + "</span>"
+        + '<span class="muted">cuenta ' + esc(n.cuenta || "?") + "… · desde " + esc(fecha(n.desde)) + " · v" + esc(n.version || "?") + "</span></div>"
+        + '<p class="muted">Modelos: ' + esc((n.modelos || []).join(", ") || "—") + " · respondidas " + num(n.servidas) + " · fallos " + num(n.fallos) + "</p>"
+        + (n.nodo ? '<div class="inline"><input data-motivo maxlength="120" placeholder="Motivo del bloqueo (opcional)"><button class="ghost danger" data-bloquear>Bloquear</button></div>' : "")
+        + "</div>").join("") || '<p class="muted">No hay nodos conectados ahora.</p>')
+      + (bloqueados.length ? "<h3>Cuentas bloqueadas</h3>" + bloqueados.map((b) => '<div class="item"><div class="item-head"><b>cuenta ' + esc(b.cuenta) + '…</b><span class="muted">' + esc(fecha(b.desde)) + (b.motivo ? " · " + esc(b.motivo) : "") + '</span><button class="ghost" data-desbloquear="' + esc(b.cuenta) + '">Desbloquear</button></div></div>').join("") : "");
+  } catch (e) { aviso("No se pudo leer la red de nodos: " + e.message, "bad"); }
+}
+$("recargarRed").addEventListener("click", cargarRed);
+$("redLista").addEventListener("click", async (e) => {
+  const des = e.target.closest("[data-desbloquear]");
+  if (des) {
+    await ocupado(des, async () => {
+      try { await api("/api/red/bloquear", { method: "POST", body: JSON.stringify({ desbloquear: des.dataset.desbloquear }) }); aviso("✓ Cuenta desbloqueada"); cargarRed(); }
+      catch (err) { aviso(err.message, "bad"); }
+    });
+    return;
+  }
+  const item = e.target.closest("[data-nodo]");
+  if (!item || !e.target.closest("[data-bloquear]")) return;
+  if (!confirm("¿Bloquear este nodo y todos los de su cuenta?")) return;
+  await ocupado(e.target, async () => {
+    try { await api("/api/red/bloquear", { method: "POST", body: JSON.stringify({ nodo: item.dataset.nodo, motivo: item.querySelector("[data-motivo]").value }) }); aviso("✓ Nodo bloqueado"); cargarRed(); }
+    catch (err) { aviso(err.message, "bad"); }
+  });
+});
 $("propLista").addEventListener("click", async (e) => {
   const item = e.target.closest("[data-prop]"); if (!item) return;
   const id = +item.dataset.prop;
@@ -527,7 +563,7 @@ async function cargarAjustes() {
     const s = await traerEstado(), a = s.ajustes;
     $("aLimite").value = a.limitePorMinuto; $("aMant").checked = !!a.mantenimiento; $("aMantMsg").value = a.mensajeMantenimiento || "";
     $("aWeb").checked = a.busquedaWeb !== false; $("aCuenta").checked = a.requerirCuenta !== false; $("aWebN").value = a.resultadosWeb || 5;
-    $("aInvitados").checked = a.invitados !== false; $("aCaptcha").checked = a.captchaRegistro !== false; $("aInvN").value = a.mensajesInvitado || 10; $("aDiaN").value = a.mensajesDiaCuenta || 300;
+    $("aInvitados").checked = a.invitados !== false; $("aCaptcha").checked = a.captchaRegistro !== false; $("aComunidad").checked = a.modoComunidad !== false; $("aInvN").value = a.mensajesInvitado || 10; $("aDiaN").value = a.mensajesDiaCuenta || 300;
     $("aSistema").innerHTML = MODOS.map(([id, nombre]) =>
       '<label>' + nombre + '<textarea data-sistema="' + id + '" maxlength="4000" placeholder="' + esc(s.sistemaPorDefecto[id]) + '">' + esc(a.sistema?.[id] || "") + "</textarea></label>").join("");
   } catch (e) { aviso("No se pudieron leer los ajustes: " + e.message, "bad"); }
@@ -538,7 +574,7 @@ $("ajustesForm").addEventListener("submit", (e) => {
   if ($("aMant").checked && !confirm("El modo mantenimiento detiene la app para todos los usuarios. ¿Activarlo?")) return;
   ocupado(e.submitter, async () => {
     try {
-      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, captchaRegistro: $("aCaptcha").checked, mensajesInvitado: +$("aInvN").value, mensajesDiaCuenta: +$("aDiaN").value, resultadosWeb: +$("aWebN").value }) });
+      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, captchaRegistro: $("aCaptcha").checked, modoComunidad: $("aComunidad").checked, mensajesInvitado: +$("aInvN").value, mensajesDiaCuenta: +$("aDiaN").value, resultadosWeb: +$("aWebN").value }) });
       aviso("✓ Ajustes guardados. La app los usa en menos de 30 s.");
     } catch (err) { aviso(err.message, "bad"); }
   });
