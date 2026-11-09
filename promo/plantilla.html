@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<title>LibreIA · kit de difusión</title>
+<!--
+  Plantilla del kit de difusión (perfil, portadas, publicaciones, historias y flyers).
+  Uso: plantilla.html?t=<pieza>&w=<ancho>&h=<alto>[&pdf=1]
+  La genera ./generar.sh con Chrome sin interfaz. Todo se mide en --u = 1 % del lado menor,
+  así la misma pieza sirve en cuadrado, vertical o papel.
+-->
+<style>
+@font-face{font-family:Anton;src:url(../landing/fonts/anton-latin-400-normal.woff2)}
+@font-face{font-family:"Space Mono";src:url(../landing/fonts/space-mono-latin-700-normal.woff2);font-weight:700}
+@font-face{font-family:Archivo;src:url(../landing/fonts/archivo-latin-400-normal.woff2);font-weight:400}
+@font-face{font-family:Archivo;src:url(../landing/fonts/archivo-latin-700-normal.woff2);font-weight:700}
+@font-face{font-family:Archivo;src:url(../landing/fonts/archivo-latin-900-normal.woff2);font-weight:900}
+:root{--ink:#090b10;--ink2:#151a24;--paper:#efe8d8;--cyan:#53e8d4;--red:#ff4b2b;--amber:#e8c18b;--green:#1f4d43;--grey:#8a8f99}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:transparent;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.lienzo{position:relative;overflow:hidden;display:flex;flex-direction:column;font-family:Archivo,sans-serif;color:var(--paper);background:var(--ink)}
+.rejilla{background-image:linear-gradient(var(--ink2) 1px,transparent 1px),linear-gradient(90deg,var(--ink2) 1px,transparent 1px);background-size:calc(var(--u)*5) calc(var(--u)*5)}
+.papel{background-color:var(--paper);color:var(--ink);background-image:linear-gradient(#e2d9c5 1px,transparent 1px),linear-gradient(90deg,#e2d9c5 1px,transparent 1px);background-size:calc(var(--u)*5) calc(var(--u)*5)}
+.rojo{background:var(--red);color:var(--ink)}
+.cian{background:var(--cyan);color:var(--ink)}
+.u{font-size:calc(var(--u)*1)}
+.mono{font-family:"Space Mono",monospace;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.disp{font-family:Anton,Impact,sans-serif;font-weight:400;text-transform:uppercase;line-height:.9}
+.kicker{font-size:calc(var(--u)*2.6);color:var(--cyan)}
+.papel .kicker,.cian .kicker,.rojo .kicker{color:var(--ink)}
+.etiqueta{display:inline-block;align-self:flex-start;padding:calc(var(--u)*.7) calc(var(--u)*1.4);border:calc(var(--u)*.35) solid currentColor;font-size:calc(var(--u)*2.3)}
+.titular{font-size:calc(var(--u)*13)}
+.titular span{display:block}
+.tachado{position:relative;width:max-content;color:var(--grey)}
+.tachado::after{content:"";position:absolute;left:-2%;right:-2%;top:46%;height:.14em;background:var(--red);transform:rotate(-3deg)}
+.resalta{display:inline-block;width:max-content;margin-top:.08em;padding:.06em .1em 0;background:var(--cyan);color:var(--ink);box-shadow:.07em .07em 0 var(--paper)}
+.papel .resalta,.cian .resalta{box-shadow:.07em .07em 0 var(--ink)}
+.cian .resalta{background:var(--ink);color:var(--cyan)}
+.sub{font-size:calc(var(--u)*3.6);line-height:1.35;max-width:88%}
+.sub b{font-weight:900}
+.logo{font-family:Anton,Impact,sans-serif;text-transform:uppercase;line-height:1;letter-spacing:.01em}
+.logo b{font-weight:400;color:var(--cyan)}
+.papel .logo b{color:var(--ink);background:var(--cyan);padding:0 .06em}
+.cian .logo b,.rojo .logo b{color:var(--paper);background:var(--ink);padding:0 .06em}
+.sello{display:inline-flex;flex-direction:column;align-items:center;padding:.16em .26em .1em;background:var(--ink);color:var(--paper);border:calc(var(--u)*.5) solid var(--paper);box-shadow:calc(var(--u)*1.4) calc(var(--u)*1.4) 0 var(--cyan);transform:rotate(3deg)}
+.sello b{color:var(--cyan);font-size:1.62em;margin-top:.04em;font-weight:400}
+.pie{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--u)*2);padding-top:calc(var(--u)*2.4);border-top:calc(var(--u)*.6) solid currentColor}
+.pie .logo{font-size:calc(var(--u)*6)}
+.pie .url{font-size:calc(var(--u)*2.7)}
+.banda{display:flex;flex-wrap:wrap;gap:0 .9em;padding:calc(var(--u)*1.6) calc(var(--u)*4);background:var(--red);color:var(--ink);font-size:calc(var(--u)*3.4)}
+.qr{display:flex;flex-direction:column;align-items:center;gap:calc(var(--u)*1.2)}
+.qr .caja{background:#fff;padding:calc(var(--u)*1.6);border:calc(var(--u)*.6) solid var(--ink);box-shadow:calc(var(--u)*1.4) calc(var(--u)*1.4) 0 var(--cyan)}
+.rojo .qr .caja,.cian .qr .caja{box-shadow:calc(var(--u)*1.4) calc(var(--u)*1.4) 0 var(--ink)}
+.qr img{display:block;width:var(--qr);height:var(--qr);image-rendering:pixelated}
+.qr .txt{font-size:calc(var(--u)*2.4);text-align:center;max-width:calc(var(--qr) + var(--u)*6)}
+.lista{list-style:none;display:grid;gap:calc(var(--u)*1.6)}
+.lista li{display:grid;grid-template-columns:calc(var(--u)*7) 1fr;align-items:start;font-size:calc(var(--u)*3.3);line-height:1.3}
+.lista li i{font-style:normal;font-family:Anton,sans-serif;font-size:calc(var(--u)*5.4);line-height:.9;color:var(--cyan)}
+.papel .lista li i,.cian .lista li i{color:var(--ink)}
+.lista b{font-weight:900}
+.tarjetas{display:grid;gap:calc(var(--u)*1.8)}
+.tarjeta{background:var(--ink);color:var(--paper);padding:calc(var(--u)*2.2) calc(var(--u)*2.6);border:calc(var(--u)*.45) solid var(--ink);box-shadow:calc(var(--u)*1) calc(var(--u)*1) 0 var(--green)}
+.tarjeta h3{font-family:Anton,sans-serif;font-weight:400;text-transform:uppercase;font-size:calc(var(--u)*4.6);line-height:1;color:var(--cyan);margin-bottom:calc(var(--u)*.8)}
+.tarjeta p{font-size:calc(var(--u)*2.8);line-height:1.3}
+.cero{font-family:Anton,sans-serif;font-size:calc(var(--u)*44);line-height:.8;color:var(--cyan)}
+.firma{font-size:calc(var(--u)*1.9);opacity:.8}
+.corte{position:absolute;inset:0;pointer-events:none}
+.corte::before,.corte::after{content:"";position:absolute;background:repeating-linear-gradient(90deg,#090b1088 0 8px,transparent 8px 14px)}
+.corte::before{left:0;right:0;top:50%;height:1px}
+.corte::after{top:0;bottom:0;left:50%;width:1px;background:repeating-linear-gradient(180deg,#090b1088 0 8px,transparent 8px 14px)}
+</style></head>
+<body>
+<script>
+// ---- datos (lo que se promete aquí debe ser verdad en la app: ver README del proyecto)
+const SITIO = "libreia.pages.dev", CORREO = "libreia@proton.me";
+const QR = { sitio: "qr/qr-sitio.svg", probar: "qr/qr-probar.svg", apk: "qr/qr-apk.svg" };
+
+const q = new URLSearchParams(location.search);
+const t = q.get("t"), W = +q.get("w") || 1080, H = +q.get("h") || 1080;
+const u = Math.min(W, H) / 100;
+const formato = W > H * 1.6 ? "ancho" : H > W * 1.6 ? "historia" : H > W * 1.15 ? "vertical" : "cuadrado";
+if (q.get("pdf")) {
+  const st = document.createElement("style");
+  st.textContent = `@page{size:${q.get("pdf")};margin:0}html,body{width:${W}px;height:${H}px}`;
+  document.head.appendChild(st);
+}
+
+const LOGO = (estilo = "") => `<span class="logo" style="${estilo}">LIBRE<b>IA</b></span>`;
+const PIE = (url = SITIO) => `<div class="pie">${LOGO()}<span class="mono url">${url}</span></div>`;
+const TITULAR = (tam = 13) => `<h1 class="disp titular" style="font-size:calc(var(--u)*${tam})"><span>La IA es</span><span class="tachado">propiedad privada</span><span class="resalta">bien común.</span></h1>`;
+const QRBOX = (cual, lado, texto) => `<div class="qr" style="--qr:calc(var(--u)*${lado})"><div class="caja"><img src="${QR[cual]}" alt=""></div>${texto ? `<p class="mono txt">${texto}</p>` : ""}</div>`;
+const pad = (a, b = a) => `padding:calc(var(--u)*${a}) calc(var(--u)*${b})`;
+
+const PIEZAS = {
+  // ---------------- PERFIL (se recorta en círculo: todo dentro del 70 % central)
+  "perfil": () => ({ cls: "rejilla", html: `<div style="flex:1;display:grid;place-items:center"><div class="logo" style="display:grid;justify-items:center;line-height:.8;font-size:calc(var(--u)*23)">LIBRE<b style="font-size:1.62em;margin-top:.08em">IA</b></div></div>` }),
+  "perfil-claro": () => ({ cls: "papel", html: `<div style="flex:1;display:grid;place-items:center"><div class="logo" style="display:grid;justify-items:center;line-height:.8;font-size:calc(var(--u)*23)">LIBRE<b style="font-size:1.62em;margin-top:.12em;padding:.04em .16em 0">IA</b></div></div>` }),
+  "perfil-sello": () => ({ cls: "cian", html: `<div style="flex:1;display:grid;place-items:center"><span class="sello logo" style="font-size:calc(var(--u)*15);box-shadow:calc(var(--u)*2) calc(var(--u)*2) 0 var(--ink)">LIBRE<b>IA</b></span></div>` }),
+
+  // ---------------- PORTADA (Facebook 1640×624; en móvil se recortan los lados: lo importante va al centro)
+  "portada": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;align-items:center;justify-content:space-between;gap:calc(var(--u)*6);${pad(5, 24)}">
+      <div><p class="mono kicker" style="margin-bottom:calc(var(--u)*3)">// IA libre · neutral · de la comunidad</p>${TITULAR(15)}</div>
+      <span class="sello logo" style="font-size:calc(var(--u)*13)">LIBRE<b>IA</b></span>
+    </div>
+    <div class="banda mono" style="justify-content:center"><span>Gratis</span><span>·</span><span>Sin anuncios</span><span>·</span><span>No guarda tus chats</span><span>·</span><span>Fuentes reales</span><span>·</span><span>${SITIO}</span></div>` }),
+
+  // ---------------- PUBLICACIONES (cuadrado 1:1 y vertical 4:5)
+  "post-manifiesto": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <p class="mono etiqueta" style="color:var(--cyan)">Manifiesto · 01</p>
+      ${TITULAR(formato === "cuadrado" ? 12.5 : 14)}
+      <p class="sub">Un chat de inteligencia artificial <b>gratuito, neutral y gobernado por su comunidad</b>. Sin anuncios. Sin dueños. Código libre.</p>
+      ${PIE()}
+    </div>` }),
+  "post-privacidad": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <p class="mono etiqueta" style="color:var(--cyan)">Privacidad · 02</p>
+      <div style="display:flex;align-items:flex-end;gap:calc(var(--u)*3)"><span class="cero" style="${formato === "cuadrado" ? "font-size:calc(var(--u)*34)" : ""}">0</span>
+        <p class="disp" style="font-size:calc(var(--u)*${formato === "cuadrado" ? 7.4 : 8.4});padding-bottom:calc(var(--u)*2)">chats guardados<br>en nuestro<br>servidor.</p></div>
+      <ul class="lista">
+        <li><i>01</i><span><b>Tus chats viven en tu teléfono.</b> Expórtalos o bórralos cuando quieras.</span></li>
+        <li><i>02</i><span><b>Tu correo y tu contraseña</b> se cifran antes de salir de tu mano.</span></li>
+        <li><i>03</i><span><b>Sin anuncios ni rastreadores.</b> Y el código es público: compruébalo.</span></li>
+      </ul>
+      ${PIE()}
+    </div>` }),
+  "post-modos": () => ({ cls: "papel", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <p class="mono etiqueta">Cómo piensa · 03</p>
+      <h1 class="disp" style="font-size:calc(var(--u)*${formato === "cuadrado" ? 10 : 11.5})">Te trata<br>como <span class="resalta">adulto.</span></h1>
+      <div class="tarjetas" style="grid-template-columns:1fr 1fr">
+        <div class="tarjeta"><h3>Neutral</h3><p>Cada postura con sus mejores argumentos.</p></div>
+        <div class="tarjeta"><h3>Libre</h3><p>Directo y franco, sin sermones.</p></div>
+        <div class="tarjeta"><h3>Técnico</h3><p>Código y soluciones al grano.</p></div>
+        <div class="tarjeta"><h3>Fusión</h3><p>Varios modelos a la vez; lo mejor de cada uno.</p></div>
+        ${formato === "cuadrado" ? "" : `<div class="tarjeta" style="grid-column:span 2"><h3>Comunidad</h3><p>Responde un modelo abierto en el ordenador de un voluntario.</p></div>`}
+      </div>
+      ${PIE()}
+    </div>` }),
+  "post-computo": () => ({ cls: "cian", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <p class="mono etiqueta">Suma cómputo · 04</p>
+      <h1 class="disp" style="font-size:calc(var(--u)*${formato === "cuadrado" ? 10.5 : 12})">La IA también<br><span class="resalta">la ponemos</span><br>entre todos.</h1>
+      <ul class="lista">
+        <li><i>01</i><span><b>Trae tu propia clave</b> de IA gratuita: tus mensajes no gastan el cupo común.</span></li>
+        <li><i>02</i><span><b>Modo Comunidad:</b> responde el ordenador de un voluntario.</span></li>
+        <li><i>03</i><span><b>Presta el tuyo:</b> conecta tu modelo local en tres pasos.</span></li>
+      </ul>
+      ${PIE()}
+    </div>` }),
+  "post-qr": () => ({ cls: "rojo", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <h1 class="disp" style="font-size:calc(var(--u)*${formato === "cuadrado" ? 10 : 11.5})">Gratis.<br>Sin anuncios.<br>Sin dueños.</h1>
+      <div style="display:flex;align-items:center;gap:calc(var(--u)*5)">
+        ${QRBOX("sitio", formato === "cuadrado" ? 30 : 36)}
+        <p class="sub" style="font-size:calc(var(--u)*4);max-width:none"><b>Escanea</b> y pruébala sin registrarte. En el navegador o en tu Android.</p>
+      </div>
+      ${PIE()}
+    </div>` }),
+
+  // ---------------- HISTORIAS 9:16 (Instagram, Facebook, estados de WhatsApp). Zonas seguras arriba y abajo.
+  "historia-manifiesto": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:calc(var(--u)*24) calc(var(--u)*8) calc(var(--u)*26)">
+      <p class="mono kicker">// LibreIA · código libre</p>
+      ${TITULAR(16)}
+      <p class="sub" style="font-size:calc(var(--u)*4.4)">Un chat de IA <b>gratuito, neutral y de su comunidad</b>. No guarda tus chats. Cita sus fuentes.</p>
+      <div style="display:flex;align-items:center;gap:calc(var(--u)*5)">${QRBOX("sitio", 30)}<p class="mono" style="font-size:calc(var(--u)*3.4);line-height:1.4">Escanea<br>o entra en<br><span style="color:var(--cyan)">${SITIO}</span></p></div>
+    </div>` }),
+  "historia-privacidad": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:calc(var(--u)*24) calc(var(--u)*8) calc(var(--u)*26)">
+      <p class="mono etiqueta" style="color:var(--cyan)">Privacidad</p>
+      <span class="cero" style="font-size:calc(var(--u)*60)">0</span>
+      <p class="disp" style="font-size:calc(var(--u)*11)">chats guardados<br>en nuestro servidor.</p>
+      <p class="sub" style="font-size:calc(var(--u)*4.4)">Tus conversaciones viven <b>solo en tu teléfono</b>. Tu correo y tu contraseña se cifran antes de salir.</p>
+      ${PIE()}
+    </div>` }),
+  "historia-qr": () => ({ cls: "rojo", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;align-items:center;text-align:center;padding:calc(var(--u)*24) calc(var(--u)*8) calc(var(--u)*26)">
+      <h1 class="disp" style="font-size:calc(var(--u)*17)">Pruébala<br>ya.</h1>
+      ${QRBOX("probar", 62)}
+      <p class="mono" style="font-size:calc(var(--u)*3.8);line-height:1.5">Sin correo · sin contraseña<br>gratis · ${SITIO}</p>
+      ${LOGO("font-size:calc(var(--u)*11)")}
+    </div>` }),
+
+  // ---------------- IMPRESOS
+  // Flyer A5 (148×210 mm): dos QR, el de probar en el navegador y el de la APK.
+  "flyer-a5": () => ({ cls: "papel", html: `
+    <div class="rejilla" style="display:flex;align-items:center;justify-content:space-between;${pad(4, 6)};border-bottom:calc(var(--u)*1) solid var(--red);background-color:var(--ink);color:var(--paper)">
+      ${LOGO("font-size:calc(var(--u)*11)")}<span class="mono" style="font-size:calc(var(--u)*2.6);color:var(--paper);text-align:right">IA libre<br>neutral<br>de la comunidad</span>
+    </div>
+    <div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:space-between;${pad(5, 6)}">
+      ${TITULAR(10.5)}
+      <ul class="lista" style="gap:calc(var(--u)*1.1)">
+        <li><i>01</i><span><b>Gratis y sin anuncios.</b> Se sostiene con donaciones voluntarias.</span></li>
+        <li><i>02</i><span><b>No guarda tus chats.</b> Viven solo en tu dispositivo.</span></li>
+        <li><i>03</i><span><b>Cita fuentes reales</b> que puedes comprobar.</span></li>
+        <li><i>04</i><span><b>De la comunidad:</b> una cuenta, un voto. Código libre AGPL.</span></li>
+      </ul>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:calc(var(--u)*5)">
+        ${QRBOX("probar", 22, "Pruébala sin registro en el navegador")}
+        ${QRBOX("apk", 22, "Descarga la app para Android")}
+      </div>
+      <div class="pie"><span class="mono" style="font-size:calc(var(--u)*2.6)">${SITIO}</span><span class="mono" style="font-size:calc(var(--u)*2.2)">${CORREO}</span></div>
+      <p class="mono firma" style="text-align:center">Hecho xhumanx + IA · Imprime y comparte</p>
+    </div>` }),
+  // Cartel A4: un gran QR al sitio.
+  "cartel-a4": () => ({ cls: "rejilla", html: `
+    <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;${pad(7)}">
+      <p class="mono kicker">// IA libre · neutral · de la comunidad</p>
+      ${TITULAR(15.5)}
+      <p class="sub" style="font-size:calc(var(--u)*4)">Un chat de inteligencia artificial <b>gratis, sin anuncios y que no guarda tus chats</b>. Varios modelos abiertos, fuentes reales y código libre.</p>
+      <div style="display:flex;align-items:center;gap:calc(var(--u)*6)">${QRBOX("sitio", 40)}
+        <div><p class="disp" style="font-size:calc(var(--u)*9)">Escanea.</p><p class="mono" style="font-size:calc(var(--u)*3.2);line-height:1.5;margin-top:calc(var(--u)*2)">Pruébala sin registro<br>o descarga la app<br><span style="color:var(--cyan)">${SITIO}</span></p></div></div>
+    </div>
+    <div class="banda mono" style="justify-content:center"><span>Gratis</span><span>·</span><span>Sin anuncios</span><span>·</span><span>Sin dueños</span><span>·</span><span>Código libre</span></div>` }),
+  // Cuatro tarjetas A6 en una hoja A4 (imprimir y cortar por las líneas).
+  "tarjetas-a4": () => {
+    const una = `<div class="rejilla" style="display:flex;flex-direction:column;justify-content:space-between;${pad(4.5)};background-color:var(--ink);color:var(--paper)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">${LOGO("font-size:calc(var(--u)*8)")}<span class="mono" style="font-size:calc(var(--u)*1.7);color:var(--cyan);text-align:right">IA libre<br>gratis<br>sin anuncios</span></div>
+      <h2 class="disp" style="font-size:calc(var(--u)*6.4)">La IA es<br><span class="resalta">bien común.</span></h2>
+      <div style="display:flex;align-items:center;gap:calc(var(--u)*2.6)">${QRBOX("probar", 15)}<p class="mono" style="font-size:calc(var(--u)*1.6);line-height:1.5">Pruébala<br>sin registro<br><span style="color:var(--cyan)">${SITIO}</span></p></div>
+    </div>`;
+    return { cls: "papel", html: `<div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))">${una}${una}${una}${una}</div><div class="corte"></div>` };
+  },
+};
+
+const pieza = PIEZAS[t];
+const div = document.createElement("div");
+if (!pieza) { div.textContent = "Pieza desconocida: " + t; document.body.appendChild(div); }
+else {
+  const { cls, html } = pieza();
+  div.className = `lienzo ${cls} f-${formato}`;
+  div.style.cssText = `width:${W}px;height:${H}px;--u:${u}px`;
+  div.innerHTML = html;
+  document.body.appendChild(div);
+  // Cuando están las fuentes, cada línea del titular se reduce hasta caber en su columna.
+  document.fonts.ready.then(() => {
+    for (const el of div.querySelectorAll(".titular > span")) {
+      const max = el.parentElement.clientWidth;
+      let tam = parseFloat(getComputedStyle(el).fontSize);
+      el.style.whiteSpace = "nowrap";
+      for (let i = 0; i < 60 && el.scrollWidth > max; i++) el.style.fontSize = (tam *= 0.97) + "px";
+    }
+    // Aviso para el generador: algo se sale del lienzo.
+    const fuera = [...div.querySelectorAll("*")].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > W + 1 || r.bottom > H + 1); });
+    const quien = (e) => { const r = e.getBoundingClientRect(); return `${e.tagName}.${e.className}«${(e.textContent || "").trim().slice(0, 18)}» +${Math.round(Math.max(r.right - W, r.bottom - H))}px`; };
+    document.title = fuera.length ? "DESBORDA: " + fuera.slice(-3).map(quien).join(" | ") : "OK";
+  });
+}
+</script>
+</body></html>

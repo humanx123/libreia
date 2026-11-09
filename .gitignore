@@ -39,3 +39,7 @@ __pycache__/
 android/keystore.properties
 *.keystore
 *.jks
+
+# Kit de difusión generado (se regenera con ./promo/generar.sh)
+promo/kit/
+promo/LibreIA-kit-difusion.zip
