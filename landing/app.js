@@ -46,6 +46,8 @@ fetch(API + "/transparencia")
     set("nodosComputo", t.comunidad?.nodos == null ? "—" : fmt(t.comunidad.nodos));
     set("btc", t.donaciones?.btc ? String(t.donaciones.btc.recibido) : "—");
     set("usdc", t.donaciones?.usdc ? Number(t.donaciones.usdc.recibido).toFixed(2) : "—");
+    set("fuentesVerif", t.fuentes ? fmt(t.fuentes.verificaciones) : "—");
+    set("fuentesFuera", t.fuentes ? fmt((t.fuentes.descartadas || []).length) : "—");
     const when = t.generado ? new Date(t.generado).toLocaleString("es") : "";
     $("statsNote").textContent = `Datos públicos de /v1/transparencia · actualizado ${when}. Proveedores: ${(t.proveedores || []).join(", ")}. ${t.privacidad || ""}`;
     if (t.donaciones?.nota) $("donNote").textContent = t.donaciones.nota + " Los importes recibidos se publican en la transparencia en vivo.";
@@ -107,4 +109,16 @@ $("shareBtn").addEventListener("click", async () => {
     await copy(text + " " + SITE);
     $("shareLabel").textContent = "✓ Enlace copiado";
   } catch { /* cancelled */ }
+});
+
+// ---------- ejemplo de verificación de fuentes (solo visual: no envía nada)
+document.querySelectorAll(".verif-mock li").forEach((li) => {
+  li.addEventListener("click", (e) => {
+    const b = e.target.closest(".vm-btn");
+    if (!b) return;
+    const on = b.getAttribute("aria-pressed") !== "true";
+    li.querySelectorAll(".vm-btn").forEach((x) => x.setAttribute("aria-pressed", "false"));
+    b.setAttribute("aria-pressed", String(on));
+    li.classList.toggle("vm-falsa", on && b.classList.contains("no"));
+  });
 });

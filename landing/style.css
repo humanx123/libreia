@@ -89,6 +89,8 @@ code{font-family:var(--mono)}
 .s3{background:var(--amber);color:var(--ink);transform:rotate(-1deg)}
 
 /* ---------- ticker ---------- */
+/* La cinta es más ancha que la pantalla (para que, inclinada, no se le vean los extremos): main la recorta. */
+main{overflow-x:clip}
 .ticker{overflow:hidden;background:var(--red);color:var(--ink);border-block:var(--b) solid var(--ink);transform:rotate(-1.2deg);margin:-14px -10px 0;position:relative;z-index:5}
 .ticker-track{display:flex;width:max-content;gap:26px;padding:12px 0;font:400 clamp(22px,3vw,34px)/1 var(--display);text-transform:uppercase;white-space:nowrap;animation:tick 38s linear infinite}
 @keyframes tick{to{transform:translateX(-50%)}}
@@ -224,7 +226,6 @@ code{font-family:var(--mono)}
   box-shadow:.06em .06em 0 var(--red);word-break:break-all;transition:transform .15s}
 .mail:hover{transform:rotate(-1deg) scale(1.01)}
 .contact-links{display:flex;flex-wrap:wrap;gap:18px}
-.redes-label{margin:44px 0 16px}
 
 /* footer */
 .foot{background:var(--paper);color:var(--ink);overflow:hidden}
@@ -238,6 +239,53 @@ code{font-family:var(--mono)}
 .js .reveal.on{opacity:1;transform:none}
 
 /* ---------- responsive ---------- */
+/* redes (iconos dibujados aquí: sin recursos de terceros) */
+.hero-redes{flex-basis:100%;margin:6px 0 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;font:700 12.5px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--cyan)}
+.hero-redes a,.foot-redes a{display:inline-flex;align-items:center;gap:6px;color:var(--paper);text-decoration:none;border-bottom:2px solid transparent}
+.hero-redes a:hover{border-bottom-color:var(--cyan);color:var(--cyan)}
+.hero-redes svg,.foot-redes svg{width:18px;height:18px}
+svg .fill{fill:currentColor;stroke:none}
+.hero-redes svg,.foot-redes svg,.red-card svg{fill:none;stroke:currentColor;stroke-width:2}
+.foot-redes{display:inline-flex;flex-wrap:wrap;gap:6px 16px}
+.foot-redes a{color:inherit}
+.foot-redes a:hover{border-bottom-color:currentColor}
+
+/* verificación de fuentes (cómo piensa) */
+.verif-demo{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:center;margin-top:64px;padding:28px;background:var(--paper);color:var(--ink);border:var(--b) solid var(--ink);box-shadow:10px 10px 0 var(--ink)}
+.tag-ink{display:inline-block;margin:0 0 12px;padding:4px 9px;background:var(--ink);color:var(--cyan);font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.08em}
+.verif-copy h3{margin:0 0 14px;font:400 clamp(34px,4vw,54px)/.95 var(--display);text-transform:uppercase}
+.verif-copy p{margin:0 0 12px}
+.verif-mock{background:var(--ink);color:var(--paper);padding:18px;border-top:5px solid var(--cyan);font-size:14.5px}
+.vm-title{margin:0 0 10px;font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--cyan)}
+.vm-title span{color:#9aa3b2;text-transform:none;letter-spacing:0;font-weight:400}
+.verif-mock ol{margin:0;padding-left:20px;display:grid;gap:12px}
+.verif-mock li b{font-weight:600;text-decoration:underline;text-decoration-color:var(--cyan);text-underline-offset:3px}
+.verif-mock li>span{display:block;font:11.5px var(--mono);color:#9aa3b2}
+.verif-mock .vm-q{display:flex;align-items:center;gap:6px;margin-top:5px}
+.vm-btn{padding:3px 9px;border:1px solid var(--line);border-radius:5px;background:transparent;color:#9aa3b2;font:700 11px var(--mono);cursor:pointer}
+.vm-btn.si[aria-pressed="true"]{background:var(--cyan);border-color:var(--cyan);color:var(--ink)}
+.vm-btn.no[aria-pressed="true"]{background:var(--red);border-color:var(--red);color:var(--ink)}
+.verif-mock li.vm-falsa b{text-decoration:line-through;text-decoration-color:var(--red);opacity:.7}
+.vm-note{margin:14px 0 0;font:11px var(--mono);color:#9aa3b2}
+
+/* redes y kit */
+.hl-ink{display:inline-block;background:var(--ink);color:var(--cyan);padding:.06em .1em 0;box-shadow:.07em .07em 0 var(--paper)}
+.redes-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
+.red-card{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto auto;column-gap:18px;align-items:center;padding:24px;background:var(--ink);color:var(--paper);text-decoration:none;border:var(--b) solid var(--ink);box-shadow:8px 8px 0 var(--paper);transition:transform .12s ease,box-shadow .12s ease}
+.red-card:hover{transform:translate(-2px,-2px);box-shadow:10px 10px 0 var(--paper)}
+.red-card svg{grid-row:1/4;width:64px;height:64px;color:var(--cyan)}
+.red-card b{font:400 clamp(30px,3.4vw,44px)/1 var(--display);text-transform:uppercase}
+.red-card span{font:700 15px var(--mono);color:var(--cyan)}
+.red-card em{font-style:normal;font-size:14px;color:#d3d8e2;margin-top:4px}
+.stk-gallery{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:0 0 28px}
+.stk-gallery img{width:100%;height:auto;transition:transform .15s ease}
+.stk-gallery img:nth-child(odd){transform:rotate(-3deg)}
+.stk-gallery img:nth-child(even){transform:rotate(2deg)}
+.stk-gallery img:hover{transform:scale(1.06) rotate(0)}
+.kit-links .btn{flex-wrap:wrap;text-align:center}
+.kit-links .btn small{font:700 11px var(--mono);opacity:.75;white-space:nowrap}
+.cyan .btn-ink{border-color:var(--ink);box-shadow:6px 6px 0 var(--paper)}
+
 @media (max-width:1020px){
   .manifesto{grid-template-columns:repeat(2,1fr)}
   .hero-grid{grid-template-columns:1fr}
@@ -248,6 +296,8 @@ code{font-family:var(--mono)}
   .dl-apk{grid-row:auto;grid-column:1/-1}
   .coins{grid-template-columns:1fr}
   .coin{max-width:520px;width:100%;justify-self:center}
+  .verif-demo{grid-template-columns:1fr}
+  .stk-gallery{grid-template-columns:repeat(3,1fr)}
 }
 @media (max-width:820px){
   .bar-toggle{display:block}
@@ -266,6 +316,9 @@ code{font-family:var(--mono)}
   .stat:nth-child(2n){border-right:0}
   .stat:nth-last-child(-n+3){border-bottom:2px solid var(--ink)}
   .stat:nth-last-child(-n+2){border-bottom:0}
+  /* Número impar de cifras: la última ocupa la fila entera y la penúltima conserva su borde. */
+  .stat:last-child:nth-child(odd){grid-column:1/-1;border-right:0}
+  .stat:nth-last-child(2):nth-child(even){border-bottom:2px solid var(--ink)}
   .facts{grid-template-columns:1fr}
   .facts p{border-right:0;border-bottom:2px solid var(--ink)}
   .facts p:last-child{border-bottom:0}
@@ -275,6 +328,7 @@ code{font-family:var(--mono)}
   .vs-row span:first-child::before{content:"✕ ";color:var(--red);font-weight:700}
   .vs-row span:last-child::before{content:"✓ ";font-weight:700}
   .download{grid-template-columns:1fr}
+  .redes-grid{grid-template-columns:1fr}
   .sec{padding:72px 0}
 }
 @media (max-width:620px){
@@ -290,6 +344,10 @@ code{font-family:var(--mono)}
   .manifesto{grid-template-columns:1fr}
   .manifesto li{min-height:0}
   .versus,.stats,.coin{box-shadow:6px 6px 0 var(--ink)}
+  .verif-demo{padding:18px;box-shadow:6px 6px 0 var(--ink)}
+  .stk-gallery{grid-template-columns:repeat(2,1fr)}
+  .red-card svg{width:46px;height:46px}
+  .kit-links .btn{width:100%}
 }
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
