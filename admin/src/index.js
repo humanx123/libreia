@@ -554,6 +554,19 @@ async function api(request, env, ruta, url) {
     return json(r, r.ok ? 200 : 400);
   }
 
+  if (ruta === "/api/referencias" && metodo === "GET") {
+    if (!env.ESTADISTICAS) return json({ modelos: {}, votos: 0, aviso: "Falta el binding ESTADISTICAS" });
+    return json(await (await estadisticas(env).fetch("https://e/referencias/reputacion")).json());
+  }
+  if (ruta === "/api/referencias/restablecer" && metodo === "POST") {
+    if (!env.ESTADISTICAS) return json({ error: "Falta el binding ESTADISTICAS" }, 503);
+    const { modelo } = await request.json().catch(() => ({}));
+    if (typeof modelo !== "string" || !modelo || modelo.length > 200) return json({ error: "Modelo inválido" }, 400);
+    const r = await (await estadisticas(env).fetch("https://e/referencias/restablecer", { method: "POST", body: JSON.stringify({ modelo }) })).json();
+    if (r.ok) await registrar(env, request, usuario, `Referencias de ${modelo} restablecidas (${r.borrados} votos borrados)`);
+    return json(r, r.ok ? 200 : 400);
+  }
+
   // --- red de nodos de voluntarios (modo Comunidad)
   if (ruta === "/api/red" && metodo === "GET") {
     if (!env.RED) return json({ nodos: [], bloqueados: [], aviso: "Falta el binding RED" });

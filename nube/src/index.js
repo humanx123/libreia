@@ -2,7 +2,7 @@
 // Usa CONFIG KV existente para almacenar usuarios y chats.
 // La IA se sirve desde ia.js llamando directamente a proveedores gratuitos.
 
-import { MODOS, ErrorIA, prepararMensajes, completar, fusionar, disponible, probarDestino } from "./ia.js";
+import { MODOS, ErrorIA, prepararMensajes, completar, fusionar, disponible, probarDestino, AVISO_REFERENCIAS } from "./ia.js";
 import { cargarMotor, invalidarMotor } from "./motor.js";
 import { PROVEEDORES_PROPIOS, leerPropia, motorPropio, sinClave, listarModelos } from "./propia.js";
 import { motorComunidad, voluntarioDe } from "./horda.js";
@@ -15,7 +15,7 @@ export { Comunidad } from "./comunidad.js";
 export { RedNodos } from "./red.js";
 import { crearTokenNodo } from "./red.js";
 
-const VERSION = "3.5.1";
+const VERSION = "3.6.0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -285,6 +285,68 @@ async function manejarV1(request, env, path, ctx) {
     return json({ ok: true, dominio: dom, voto: datos.voto, cuenta: !!cuenta }, 200, CORS_HEADERS);
   }
 
+  // Referencias que la IA escribe dentro del texto (enlaces o bibliografía): ¿existen de verdad?
+  // ✗ cuenta contra el MODELO que la escribió (con bastantes marcas se le exige no inventar);
+  // ✓ en un enlace cuenta además como voto «real» para su dominio, que sube en la búsqueda.
+  if (path === "/v1/referencias/verificar" && request.method === "POST") {
+    if (!env.ESTADISTICAS || !env.INTERNAL_TOKEN) return errorOpenAI("La verificación de referencias no está disponible", 503, "server_error");
+    if ((await limitePorIp(env, "voto-fuente-ip:" + red, 120)) > 0) return errorOpenAI("Demasiadas verificaciones seguidas. Espera un minuto.", 429, "rate_limit_exceeded");
+    const cuerpo = await leerCuerpo(request, 4096);
+    const datos = cuerpo && typeof cuerpo === "object" && cuerpo !== TOO_LARGE ? cuerpo : {};
+    if (datos.voto !== null && datos.voto !== "real" && datos.voto !== "falsa") return errorOpenAI("El voto debe ser «real», «falsa» o null", 400, "invalid_request_error");
+    let url = null;
+    if (datos.url) {
+      try {
+        url = new URL(String(datos.url));
+      } catch {
+        url = null;
+      }
+      if (!url || !/^https?:$/.test(url.protocol) || String(datos.url).length > 2000) return errorOpenAI("Enlace de referencia inválido", 400, "invalid_request_error");
+    }
+    const texto = typeof datos.texto === "string" ? datos.texto.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 300) : "";
+    if (!url && texto.length < 3) return errorOpenAI("Falta la referencia", 400, "invalid_request_error");
+    // Qué modelo la escribió: solo modelos del catálogo (o el modo Comunidad, que cambia de voluntario).
+    const proveedor = typeof datos.proveedor === "string" ? datos.proveedor : "";
+    const nombreModelo = typeof datos.modelo === "string" ? datos.modelo : "";
+    const modelo = /^(voluntario|nodo LibreIA|AI Horde)/.test(proveedor) ? "comunidad"
+      : modelosCatalogo(motor).has(`${proveedor}/${nombreModelo}`) ? `${proveedor}/${nombreModelo}` : null;
+    const instalacion = request.headers.get("X-LibreIA-Instalacion") || "";
+    const votante = cuenta ? "c:" + cuenta.id : /^[0-9a-f-]{36}$/i.test(instalacion) ? "i:" + instalacion.toLowerCase() : null;
+    if (!votante) return errorOpenAI("Para que tu verificación cuente, crea una cuenta gratis o activa las estadísticas anónimas en Configuración.", 403, "voter_required");
+    if ((await limitePorIp(env, "voto-fuente:" + votante, 60)) > 0) return errorOpenAI("Demasiadas verificaciones seguidas. Espera un minuto.", 429, "rate_limit_exceeded");
+    const tipo = cuenta ? "cuenta" : "instalacion";
+    const dom = url ? dominio(url.href) : null;
+    const ref = url ? dom + (url.pathname.replace(/\/+$/, "") || "/") + url.search : "t:" + texto;
+    const guardar = async (ruta, cuerpoDO) => {
+      const r = await (await estadisticasDO(env).fetch("https://e" + ruta, { method: "POST", body: JSON.stringify(cuerpoDO) })).json();
+      if (!r.ok) throw Object.assign(new Error(r.error || "No se pudo guardar la verificación"), { status: 400 });
+    };
+    try {
+      if (modelo) {
+        await guardar("/referencias/votar", {
+          clave: (await hmacHex(env.INTERNAL_TOKEN, `ref:${votante}|${modelo}|${ref}`)).slice(0, 40),
+          votante: (await hmacHex(env.INTERNAL_TOKEN, `ref-modelo:${votante}|${modelo}`)).slice(0, 40),
+          modelo,
+          voto: datos.voto,
+          tipo,
+        });
+      }
+      if (url) {
+        // Solo el ✓ habla del dominio (la página existe); un ✗ o retirar el voto quitan ese apoyo.
+        await guardar("/fuentes/votar", {
+          clave: (await hmacHex(env.INTERNAL_TOKEN, `fuente-ref:${votante}|${ref}`)).slice(0, 40),
+          votante: (await hmacHex(env.INTERNAL_TOKEN, `fuente-dominio:${votante}|${dom}`)).slice(0, 40),
+          dominio: dom,
+          voto: datos.voto === "real" ? "real" : null,
+          tipo,
+        });
+      }
+    } catch (e) {
+      return errorOpenAI(e.message, e.status || 500, "invalid_request_error");
+    }
+    return json({ ok: true, voto: datos.voto, cuenta: !!cuenta, modelo: !!modelo, dominio: dom }, 200, CORS_HEADERS);
+  }
+
   if (path === "/v1/chat/completions" && request.method === "POST") {
     if (motor.ajustes.mantenimiento) {
       return errorOpenAI(motor.ajustes.mensajeMantenimiento, 503, "maintenance");
@@ -382,7 +444,10 @@ async function manejarV1(request, env, path, ctx) {
       ]));
       // La app espera 100 s: la búsqueda ya gastó parte del tiempo, la IA usa lo que queda.
       const presupuestoMs = Math.max(20000, PRESUPUESTO_TOTAL_MS - (Date.now() - inicioPeticion));
+      // Modelos que la comunidad pilló citando referencias inexistentes: reciben un aviso en el sistema.
+      const avisados = await modelosAvisados(env, motor);
       if (esComunidad) {
+        if (avisados?.has("comunidad")) mensajes[0] = { role: "system", content: mensajes[0].content + AVISO_REFERENCIAS };
         // 1) Nodos LibreIA de voluntarios (si hay alguno libre). 2) Si no, AI Horde.
         let fallosRed = null;
         if (env.RED) {
@@ -426,7 +491,7 @@ async function manejarV1(request, env, path, ctx) {
         return respuestaOpenAI({ ...r, fuentes, busqueda, comunidad: { voluntario, red: "AI Horde" } }, modo);
       }
       if (modo === "fusion") {
-        const r = await fusionar(motor, mensajes, { presupuestoMs });
+        const r = await fusionar(motor, mensajes, { presupuestoMs, avisados });
         contar(r.destino?.platform);
         return respuestaOpenAI({ ...r, fuentes, busqueda }, modo);
       }
@@ -436,6 +501,7 @@ async function manejarV1(request, env, path, ctx) {
         temperatura: cuerpo.temperature,
         presupuestoMs,
         sinEnfriar: !!propia, // una clave propia mala no castiga al proveedor para los demás
+        avisados,
       });
       contar(r.destino?.platform);
       if (r.stream) {
@@ -720,17 +786,41 @@ async function reputacionFuentes(env) {
   }
 }
 
+/** «plataforma/modelo» de todo el catálogo (modos y Fusión): los únicos que pueden recibir votos de referencias. */
+function modelosCatalogo(motor) {
+  const c = motor.catalogo;
+  const todos = [...Object.values(c.modes || {}).flat(), ...(c.fusion?.panel || []), ...(c.fusion?.panelFallback || []), ...(c.fusion?.synth ? [c.fusion.synth] : [])];
+  return new Set(todos.filter((d) => d?.platform && d?.model).map((d) => `${d.platform}/${d.model}`));
+}
+/** Mismo criterio que el veto de dominios: ✗ de al menos «umbral» cuentas y más del doble que ✓. */
+const modeloAvisado = (r, umbral) => r.falsa >= umbral && r.falsa > 2 * r.real;
+let cacheAvisados = null;
+/** Set de modelos avisados, con caché de 10 min. Si falla, se responde sin avisos (null). */
+async function modelosAvisados(env, motor) {
+  if (cacheAvisados && Date.now() - cacheAvisados.t < 600000) return cacheAvisados.datos;
+  try {
+    const { modelos } = await (await estadisticasDO(env).fetch("https://e/referencias/reputacion")).json();
+    const umbral = umbralVeto(motor);
+    cacheAvisados = { t: Date.now(), datos: new Set(Object.entries(modelos || {}).filter(([, r]) => modeloAvisado(r, umbral)).map(([m]) => m)) };
+    return cacheAvisados.datos;
+  } catch (e) {
+    console.error("reputación de modelos:", e.message);
+    return cacheAvisados?.datos || null;
+  }
+}
+
 // ===== Transparencia pública =====
 let cacheTransparencia = null;
 async function transparencia(env, motor) {
   if (cacheTransparencia && Date.now() - cacheTransparencia.t < 300000) return cacheTransparencia.datos;
   const leer = async (fn) => { try { return await fn(); } catch { return null; } };
-  const [uso, cuentas, cadena, nodos, fuentesRep] = await Promise.all([
+  const [uso, cuentas, cadena, nodos, fuentesRep, refsRep] = await Promise.all([
     leer(async () => (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/resumen")).json()),
     leer(async () => (await llamarComunidad(env, "/cuentas/contar", {})).datos),
     leer(async () => (await (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/valor?clave=cadena")).json()).valor),
     leer(async () => (env.RED ? (await redNodos(env).fetch("https://red/resumen")).json() : null)),
     leer(async () => (await estadisticasDO(env).fetch("https://e/fuentes/reputacion")).json()),
+    leer(async () => (await estadisticasDO(env).fetch("https://e/referencias/reputacion")).json()),
   ]);
   const umbral = umbralVeto(motor);
   const proveedores = Object.keys(motor.catalogo.providers).filter((id) => disponible(motor, id));
@@ -753,6 +843,11 @@ async function transparencia(env, motor) {
       umbral,
       descartadas: Object.entries(fuentesRep.dominios || {}).filter(([, r]) => dominioVetado(r, umbral)).map(([d]) => d).sort(),
     } : null,
+    // Referencias escritas por la IA en el texto: cuántas se verificaron y qué modelos reciben el aviso de no inventar.
+    referencias: refsRep ? {
+      verificaciones: refsRep.votos,
+      modelosConAviso: Object.entries(refsRep.modelos || {}).filter(([, r]) => modeloAvisado(r, umbral)).map(([m]) => m).sort(),
+    } : null,
     prueba: {
       activa: motor.ajustes.requerirCuenta === false || motor.ajustes.invitados !== false,
       mensajesPorHora: motor.ajustes.requerirCuenta === false ? null : Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100),
@@ -762,7 +857,7 @@ async function transparencia(env, motor) {
       usdc: cadena?.usdc ? { recibido: cadena.usdc.recibido, pagos: cadena.usdc.donaciones, desde: cadena.usdc.desde } : null,
       nota: "Las direcciones de donación son compartidas con el proyecto Kumo.",
     },
-    privacidad: "No se guardan mensajes, IPs, correos ni contraseñas. Solo números agregados y huellas cifradas irreversibles de las cuentas. De las verificaciones de fuentes solo se guarda el dominio y el veredicto, con huellas irreversibles (nunca la URL junto a quién votó).",
+    privacidad: "No se guardan mensajes, IPs, correos ni contraseñas. Solo números agregados y huellas cifradas irreversibles de las cuentas. De las verificaciones de fuentes solo se guarda el dominio y el veredicto, con huellas irreversibles (nunca la URL junto a quién votó). De las referencias del texto, solo el modelo que la escribió y el veredicto.",
   };
   cacheTransparencia = { t: Date.now(), datos };
   return datos;

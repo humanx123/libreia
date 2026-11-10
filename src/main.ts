@@ -12,7 +12,9 @@ type Role = "user" | "assistant";
 type Verdict = "real" | "falsa";
 type Source = { n: number; titulo: string; url: string; dominio: string; voto?: Verdict };
 type Meta = { modo: string; proveedor?: string; modelo?: string };
-type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta; cortada?: boolean };
+type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta; cortada?: boolean; refVotos?: Record<string, Verdict> };
+/** A reference the AI wrote in its own text (a link or a bibliography entry), not one of the searched sources. */
+type Ref = { key: string; texto: string; url?: string; dominio?: string };
 /** Old notice that used to be glued to the text of a reply cut by length (chats saved before 0.12.4). */
 const OLD_CUT_NOTICE = "\n\n⚠️ *(respuesta cortada por longitud)*";
 type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
@@ -92,6 +94,11 @@ function cleanMeta(v: any): Meta | undefined {
   if (!v || typeof v !== "object" || typeof v.modo !== "string") return undefined;
   return { modo: str(v.modo, 20), proveedor: str(v.proveedor, 40) || undefined, modelo: str(v.modelo, 120) || undefined };
 }
+function cleanRefVotes(v: any): Record<string, Verdict> | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const out = Object.fromEntries(Object.entries(v).filter(([k, x]) => k.length <= 400 && (x === "real" || x === "falsa")).slice(0, 40)) as Record<string, Verdict>;
+  return Object.keys(out).length ? out : undefined;
+}
 function cleanChats(v: unknown): ChatSession[] {
   if (!Array.isArray(v)) return [];
   return v
@@ -110,6 +117,7 @@ function cleanChats(v: unknown): ChatSession[] {
           ...(m.cta ? { cta: true } : {}),
           ...(cleanSources(m.fuentes) ? { fuentes: cleanSources(m.fuentes) } : {}),
           ...(cleanMeta(m.meta) ? { meta: cleanMeta(m.meta) } : {}),
+          ...(cleanRefVotes(m.refVotos) ? { refVotos: cleanRefVotes(m.refVotos) } : {}),
         })),
     }));
 }
@@ -245,6 +253,83 @@ function verdictButtons(f: Source): string {
     `<button type="button" class="verif-btn ${v}" data-verif="${v}" data-src="${Number(f.n) | 0}" aria-pressed="${f.voto === v}" title="${title}">${label}</button>`;
   return `<div class="verif" role="group" aria-label="¿Es real esta fuente?"><span class="verif-q">¿Es real?</span>${b("real", "✓ Sí", "La fuente existe y dice lo que se cita")}${b("falsa", "✗ No", "La fuente no existe, no funciona o no dice lo que se cita")}<span class="verif-msg" aria-live="polite"></span></div>`;
 }
+// ---------------------------------------------------------------- references in the text
+const REF_HEADING = /^\s*(?:#{1,6}\s*)?(?:\*\*|__)?\s*(?:referencias(?: bibliográficas)?|bibliograf[ií]a|fuentes(?: citadas| consultadas| recomendadas)?|references|sources|bibliography|citas|lecturas recomendadas|para saber más|enlaces(?: útiles| de interés)?)\s*:?\s*(?:\*\*|__)?\s*:?\s*$/i;
+const plainText = (t: string) => t.replace(/[*_`#>]+/g, "").replace(/\s+/g, " ").trim();
+/** Same page with or without www, #anchor or trailing slash. */
+function normUrl(u: string): string {
+  try {
+    const x = new URL(u);
+    return x.hostname.replace(/^www\./, "").toLowerCase() + (x.pathname.replace(/\/+$/, "") || "/") + x.search;
+  } catch {
+    return u;
+  }
+}
+/**
+ * References the AI wrote itself: every link outside code, plus the entries of a "Referencias" /
+ * "Bibliografía" list. The searched sources are left out (they have their own box).
+ */
+function extractRefs(m: Message): Ref[] {
+  const known = new Set((m.fuentes || []).map((f) => normUrl(f.url)));
+  const knownTitles = (m.fuentes || []).map((f) => f.titulo.toLowerCase()).filter((t) => t.length > 8);
+  const text = m.content.replace(/```[\s\S]*?(```|$)/g, "\n").replace(/`[^`\n]*`/g, "");
+  const out: Ref[] = [];
+  const seen = new Set<string>();
+  const add = (r: Ref) => {
+    if (out.length >= 12 || seen.has(r.key)) return;
+    seen.add(r.key);
+    out.push(r);
+  };
+  const addUrl = (raw: string, label?: string) => {
+    const url = raw.replace(/[.,;:!?'"»”]+$/, "");
+    if (!/^https?:\/\/[^/\s]+\.[^/\s]+/i.test(url)) return;
+    const key = normUrl(url);
+    if (known.has(key)) return;
+    let dominio = "";
+    try {
+      dominio = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return;
+    }
+    add({ key, url, dominio, texto: plainText(label && label !== url ? label : dominio).slice(0, 200) });
+  };
+  // Reference-list entries first: their text is the best label for a link.
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!REF_HEADING.test(lines[i])) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line.trim()) continue;
+      const item = line.match(/^\s*(?:[-*+•]|\d+[.)]|\[\d+\])\s+(.+)$/);
+      if (!item) break;
+      const body = item[1];
+      const link = body.match(/\[([^\]\n]{1,300})\]\((https?:\/\/[^\s)]+)\)/) || body.match(/(https?:\/\/[^\s<>()\]"'`]+)/);
+      const label = plainText(body.replace(/\[([^\]\n]*)\]\((https?:\/\/[^\s)]+)\)/g, "$1").replace(/https?:\/\/\S+/g, "")).replace(/[\s—–:-]+$/, "");
+      if (link) addUrl(link[2] || link[1], label || undefined);
+      else if (label.length >= 8 && !knownTitles.some((t) => label.toLowerCase().includes(t))) add({ key: "t:" + label.toLowerCase().slice(0, 300), texto: label.slice(0, 300) });
+    }
+  }
+  for (const x of text.matchAll(/\[([^\]\n]{1,300})\]\((https?:\/\/[^\s)]+)\)/g)) addUrl(x[2], x[1]);
+  for (const x of text.matchAll(/https?:\/\/[^\s<>()\]\["'`]+/g)) addUrl(x[0]);
+  return out;
+}
+function renderRefs(m: Message): string {
+  const refs = extractRefs(m);
+  if (!refs.length) return "";
+  const votes = m.refVotos || {};
+  return `<div class="sources refs"><div class="sources-title">Referencias citadas en la respuesta <span class="sources-hint">· la IA las escribió: ¿existen de verdad?</span></div><ol>${refs
+    .map((r, k) => {
+      const v = votes[r.key];
+      const b = (x: Verdict, label: string, title: string) =>
+        `<button type="button" class="verif-btn ${x}" data-refverif="${x}" data-ref="${k}" aria-pressed="${v === x}" title="${title}">${label}</button>`;
+      const head = r.url
+        ? `<a href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(r.texto)}</a><span class="dominio">${esc(r.dominio || "")}</span>`
+        : `<span class="ref-texto">${esc(r.texto)}</span>`;
+      return `<li class="${v ? "voto-" + v : ""}">${head}<div class="verif" role="group" aria-label="¿Existe esta referencia?"><span class="verif-q">¿Existe?</span>${b("real", "✓ Sí", r.url ? "El enlace funciona y dice lo que se cita" : "La obra o el documento existe y dice lo que se cita")}${b("falsa", "✗ No", r.url ? "El enlace no existe o no dice lo que se cita" : "No existe o no dice lo que se cita (inventada)")}<span class="verif-msg" aria-live="polite"></span></div></li>`;
+    })
+    .join("")}</ol></div>`;
+}
+
 function renderSources(fuentes?: Source[]): string {
   if (!fuentes?.length) return "";
   return `<div class="sources"><div class="sources-title">Fuentes consultadas <span class="sources-hint">· márcalas: ¿son reales?</span></div><ol>${fuentes
@@ -804,7 +889,7 @@ function renderMessages() {
           body =
             m.role === "user" || m.error
               ? esc(m.content).replace(/\n/g, "<br>")
-              : renderMarkdown(m.content, m.fuentes) + more + renderSources(m.fuentes);
+              : renderMarkdown(m.content, m.fuentes) + more + renderSources(m.fuentes) + renderRefs(m);
         } catch {
           body = esc(m.content).replace(/\n/g, "<br>"); // a broken message never breaks the whole chat
         }
@@ -878,6 +963,11 @@ messagesEl.addEventListener("click", (e) => {
     void continueReply(Number(more.closest<HTMLElement>(".message")?.dataset.i));
     return;
   }
+  const refBtn = t.closest<HTMLButtonElement>("[data-refverif]");
+  if (refBtn) {
+    void verifyRef(refBtn);
+    return;
+  }
   const verif = t.closest<HTMLButtonElement>("[data-verif]");
   if (verif) {
     void verifySource(verif);
@@ -943,6 +1033,52 @@ async function verifySource(btn: HTMLButtonElement) {
     msg.textContent = (e as ApiError).message;
   } finally {
     li.querySelectorAll<HTMLButtonElement>("[data-verif]").forEach((b) => (b.disabled = false));
+  }
+}
+
+/**
+ * Marks a reference written by the AI as existing / invented. ✗ counts against the model that wrote it
+ * (the server warns it after enough marks); ✓ on a link also supports its website in the search.
+ */
+async function verifyRef(btn: HTMLButtonElement) {
+  const li = btn.closest("li")!;
+  const m = messages[Number(btn.closest<HTMLElement>(".message")?.dataset.i)];
+  const r = m && extractRefs(m)[Number(btn.dataset.ref)];
+  if (!m || !r) return;
+  const before = m.refVotos?.[r.key];
+  const choice = btn.dataset.refverif as Verdict;
+  const voto: Verdict | undefined = before === choice ? undefined : choice;
+  const msg = li.querySelector<HTMLElement>(".verif-msg")!;
+  const store = (v: Verdict | undefined) => {
+    const all = { ...(m.refVotos || {}) };
+    if (v) all[r.key] = v;
+    else delete all[r.key];
+    if (Object.keys(all).length) m.refVotos = all;
+    else delete m.refVotos;
+    saveChats();
+    li.className = v ? "voto-" + v : "";
+    li.querySelectorAll<HTMLButtonElement>("[data-refverif]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.refverif === v)));
+  };
+  store(voto);
+  msg.className = "verif-msg";
+  msg.textContent = "Enviando…";
+  li.querySelectorAll<HTMLButtonElement>("[data-refverif]").forEach((b) => (b.disabled = true));
+  try {
+    const res = await api<{ cuenta?: boolean; modelo?: boolean }>("/referencias/verificar", {
+      body: { voto: voto ?? null, ...(r.url ? { url: r.url } : { texto: r.texto }), proveedor: m.meta?.proveedor || "", modelo: m.meta?.modelo || "" },
+      timeoutMs: 15000,
+    });
+    msg.textContent = !voto ? "Marca quitada"
+      : !res?.cuenta ? "Gracias. Con una cuenta gratis tu voto mejora la búsqueda"
+      : !res.modelo && !r.url ? "Guardado en tu dispositivo (respuesta de tu propia clave)"
+      : voto === "real" ? (r.url ? "Gracias: esa web saldrá antes en la búsqueda" : "Gracias: confirmada")
+      : "Gracias: si más personas lo marcan, ese modelo dejará de inventar referencias";
+  } catch (e) {
+    store(before);
+    msg.className = "verif-msg bad";
+    msg.textContent = (e as ApiError).message;
+  } finally {
+    li.querySelectorAll<HTMLButtonElement>("[data-refverif]").forEach((b) => (b.disabled = false));
   }
 }
 

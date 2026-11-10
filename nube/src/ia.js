@@ -104,6 +104,17 @@ export function prepararMensajes(mensajes, modo, sistemaPersonalizado, { maxCara
 
 const propio = (obj, clave) => !!obj && Object.hasOwn(obj, clave);
 
+// Aviso para los modelos cuyas referencias los usuarios marcaron como inexistentes (ver /v1/referencias/verificar).
+export const AVISO_REFERENCIAS =
+  "\n\nIMPORTANTE: personas usuarias han comprobado que a veces citas referencias o enlaces que no existen. " +
+  "Cita solo las fuentes consultadas que se te dan (con su número entre corchetes) o enlaces que conozcas con total certeza. " +
+  "Si no tienes una fuente real, dilo en vez de inventarla. Nunca inventes URLs, títulos, autores ni años.";
+/** Mensajes con el aviso añadido al sistema si el destino está entre los avisados. */
+export function conAviso(mensajes, destino, avisados) {
+  if (!avisados?.has?.(`${destino.platform}/${destino.model}`) || mensajes[0]?.role !== "system") return mensajes;
+  return [{ role: "system", content: mensajes[0].content + AVISO_REFERENCIAS }, ...mensajes.slice(1)];
+}
+
 function proveedor(motor, platform) {
   const p = propio(motor.catalogo.providers, platform) ? motor.catalogo.providers[platform] : null;
   if (!p) throw new Error(`Proveedor desconocido: ${platform}`);
@@ -222,7 +233,7 @@ function parametros(maxTokens, temperatura) {
  * Recorre la lista de un modo hasta que un proveedor responde.
  * Con stream=true devuelve la Response SSE del proveedor tal cual.
  */
-export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS, sinEnfriar = false, tiempoIntentoMs = TIEMPO_INTENTO_MS } = {}) {
+export async function completar(motor, modo, mensajes, { stream = false, maxTokens, temperatura, presupuestoMs = PRESUPUESTO_MS, sinEnfriar = false, tiempoIntentoMs = TIEMPO_INTENTO_MS, avisados = null } = {}) {
   const lista = propio(motor.catalogo.modes, modo) ? motor.catalogo.modes[modo] : null;
   if (!lista) throw new ErrorIA(`Modo desconocido: ${modo}`, 400, []);
   const cuerpo = { messages: mensajes, ...parametros(maxTokens, temperatura), stream };
@@ -241,12 +252,13 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
       break;
     }
     const tiempo = Math.min(tiempoIntentoMs, restante);
+    const cuerpoDestino = { ...cuerpo, messages: conAviso(cuerpo.messages, destino, avisados) };
     try {
       if (stream) {
-        const res = await llamar(motor, destino, cuerpo, tiempo);
+        const res = await llamar(motor, destino, cuerpoDestino, tiempo);
         return { stream: res, destino };
       }
-      const { texto, datos } = await pedirTexto(motor, destino, cuerpo, tiempo);
+      const { texto, datos } = await pedirTexto(motor, destino, cuerpoDestino, tiempo);
       return { texto, destino, ms: Date.now() - inicio, uso: datos.usage || null, fin: datos.choices?.[0]?.finish_reason || "stop", horda: datos.x_horde || null };
     } catch (e) {
       intentos.push({ proveedor: destino.platform, modelo: destino.model, error: describirError(e), ms: Date.now() - inicio });
@@ -265,7 +277,7 @@ export async function completar(motor, modo, mensajes, { stream = false, maxToke
  * Si el sintetizador falla, se devuelve la respuesta más completa del panel.
  * Todo cabe en el mismo presupuesto de tiempo que un modo normal.
  */
-export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS } = {}) {
+export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS, avisados = null } = {}) {
   const { panel, panelFallback = [], synth } = motor.catalogo.fusion;
   const limite = Date.now() + Math.min(presupuestoMs, PRESUPUESTO_MS);
   const restante = () => limite - Date.now();
@@ -275,7 +287,7 @@ export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS
   const resultados = await Promise.allSettled(
     elegidos.map(async (destino) => {
       try {
-        const { texto } = await pedirTexto(motor, destino, { messages: mensajes, max_tokens: 1500 }, TIEMPO_INTENTO_MS);
+        const { texto } = await pedirTexto(motor, destino, { messages: conAviso(mensajes, destino, avisados), max_tokens: 1500 }, TIEMPO_INTENTO_MS);
         return { destino, texto };
       } catch (e) {
         enfriar(claveDe(destino), e.status || (e.name === "TimeoutError" ? 504 : 502));
@@ -291,7 +303,7 @@ export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS
   // Si el panel no da ninguna respuesta, se usa el modo neutral con el tiempo que queda.
   if (!buenas.length) {
     try {
-      const r = await completar(motor, "neutral", mensajes, { presupuestoMs: Math.max(restante(), 0) });
+      const r = await completar(motor, "neutral", mensajes, { presupuestoMs: Math.max(restante(), 0), avisados });
       return { ...r, fusion: { panel: [], fallos: intentos, respaldo: true } };
     } catch (e) {
       if (e instanceof ErrorIA) throw new ErrorIA("Fusión: fallaron el panel y el modo neutral de respaldo", 503, [...intentos, ...e.intentos]);
@@ -326,7 +338,7 @@ export async function fusionar(motor, mensajes, { presupuestoMs = PRESUPUESTO_MS
       break;
     }
     try {
-      const { texto, datos } = await pedirTexto(motor, destino, { messages: sintesis, max_tokens: MAX_TOKENS }, Math.min(TIEMPO_INTENTO_MS, restante()));
+      const { texto, datos } = await pedirTexto(motor, destino, { messages: conAviso(sintesis, destino, avisados), max_tokens: MAX_TOKENS }, Math.min(TIEMPO_INTENTO_MS, restante()));
       return { texto, destino, fin: datos.choices?.[0]?.finish_reason || "stop", fusion: { panel: buenas.map((b) => b.destino), sintetizador: destino, fallos: intentos } };
     } catch (e) {
       intentos.push({ proveedor: destino.platform, modelo: destino.model, error: `síntesis: ${describirError(e)}` });

@@ -57,6 +57,11 @@ export class Estadisticas {
       -- (para contar personas distintas por dominio). Ninguno de los dos se puede revertir.
       CREATE TABLE IF NOT EXISTS fuentes_votos (clave TEXT PRIMARY KEY, votante TEXT NOT NULL, dominio TEXT NOT NULL, voto TEXT NOT NULL, dia TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS fuentes_votos_dominio ON fuentes_votos (dominio);
+      -- Referencias que la IA escribe dentro del texto (enlaces o bibliografía): ¿existen de verdad?
+      -- Se cuentan por modelo («plataforma/modelo»), no por dominio: un enlace inventado a una web
+      -- seria no hace falsa a esa web. Mismas huellas irreversibles que fuentes_votos.
+      CREATE TABLE IF NOT EXISTS referencias_votos (clave TEXT PRIMARY KEY, votante TEXT NOT NULL, modelo TEXT NOT NULL, voto TEXT NOT NULL, tipo TEXT NOT NULL, dia TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS referencias_votos_modelo ON referencias_votos (modelo);
     `);
     // «tipo»: cuenta o instalación. Solo las cuentas (registro con captcha) deciden vetos y prioridades:
     // un id de instalación lo inventa cualquiera.
@@ -73,6 +78,15 @@ export class Estadisticas {
     if (ruta === "/resumen") return Response.json(this.resumen());
     if (ruta === "/fuentes/votar") return Response.json(this.votarFuente(await request.json()));
     if (ruta === "/fuentes/reputacion") return Response.json(this.reputacionFuentes());
+    if (ruta === "/referencias/votar") return Response.json(this.votarReferencia(await request.json()));
+    if (ruta === "/referencias/reputacion") return Response.json(this.reputacionModelos());
+    if (ruta === "/referencias/restablecer") {
+      const { modelo } = await request.json();
+      if (typeof modelo !== "string" || !modelo || modelo.length > 200) return Response.json({ ok: false, error: "modelo inválido" });
+      const antes = this.sql.exec("SELECT COUNT(*) AS n FROM referencias_votos WHERE modelo = ?", modelo).toArray()[0]?.n || 0;
+      this.sql.exec("DELETE FROM referencias_votos WHERE modelo = ?", modelo);
+      return Response.json({ ok: true, borrados: antes });
+    }
     if (ruta === "/fuentes/restablecer") {
       const { dominio } = await request.json();
       if (typeof dominio !== "string" || !dominio || dominio.length > 253) return Response.json({ ok: false, error: "dominio inválido" });
@@ -156,6 +170,38 @@ export class Estadisticas {
     ).toArray();
     const votos = this.sql.exec("SELECT COUNT(*) AS n FROM fuentes_votos").toArray()[0]?.n || 0;
     return { dominios: Object.fromEntries(filas.map((f) => [f.dominio, { real: f.real, falsa: f.falsa, realTodos: f.realTodos, falsaTodos: f.falsaTodos }])), votos };
+  }
+
+  /** Referencias del texto: voto "real" | "falsa" | null (retirar), por persona, referencia y modelo. */
+  votarReferencia({ clave, votante, modelo, voto, tipo }) {
+    const ok = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max;
+    if (!ok(clave, 64) || !ok(votante, 64) || !ok(modelo, 200)) return { ok: false, error: "datos inválidos" };
+    if (voto === null) {
+      this.sql.exec("DELETE FROM referencias_votos WHERE clave = ?", clave);
+      return { ok: true };
+    }
+    if (voto !== "real" && voto !== "falsa") return { ok: false, error: "voto inválido" };
+    if (tipo !== "cuenta" && tipo !== "instalacion") return { ok: false, error: "tipo inválido" };
+    this.sql.exec(
+      `INSERT INTO referencias_votos (clave, votante, modelo, voto, tipo, dia) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(clave) DO UPDATE SET voto = excluded.voto, dia = excluded.dia`,
+      clave, votante, modelo, voto, tipo, hoy(),
+    );
+    return { ok: true };
+  }
+
+  /** { modelos: { "groq/x": { real, falsa, realTodos, falsaTodos } }, votos }: personas distintas por modelo (real/falsa solo cuentas). */
+  reputacionModelos() {
+    const filas = this.sql.exec(
+      `SELECT modelo,
+              COUNT(DISTINCT CASE WHEN voto = 'real' AND tipo = 'cuenta' THEN votante END) AS real,
+              COUNT(DISTINCT CASE WHEN voto = 'falsa' AND tipo = 'cuenta' THEN votante END) AS falsa,
+              COUNT(DISTINCT CASE WHEN voto = 'real' THEN votante END) AS realTodos,
+              COUNT(DISTINCT CASE WHEN voto = 'falsa' THEN votante END) AS falsaTodos
+         FROM referencias_votos GROUP BY modelo`,
+    ).toArray();
+    const votos = this.sql.exec("SELECT COUNT(*) AS n FROM referencias_votos").toArray()[0]?.n || 0;
+    return { modelos: Object.fromEntries(filas.map((f) => [f.modelo, { real: f.real, falsa: f.falsa, realTodos: f.realTodos, falsaTodos: f.falsaTodos }])), votos };
   }
 
   resumen() {

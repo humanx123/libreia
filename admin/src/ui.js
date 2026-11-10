@@ -69,6 +69,9 @@ export const HTML = `<!doctype html>
     <div class="row-head"><h2>Fuentes verificadas por los usuarios</h2><button id="recargarFuentes" class="ghost">Actualizar</button></div>
     <p class="muted">Bajo cada respuesta, las personas marcan si una fuente es real o no. Se cuentan personas distintas por dominio. Solo deciden las <b>cuentas</b> (el registro tiene captcha; un id del modo prueba lo inventa cualquiera): un dominio deja de usarse cuando lo marcan como falso al menos el umbral de cuentas (Ajustes) y lo falso dobla a lo real; los confirmados salen primero. Los votos del modo prueba se ven aquí pero no cuentan. Los cambios tardan hasta 10 min en llegar a la búsqueda y 5 min a Transparencia. No se guardan URLs ni quién votó.</p>
     <div id="fuentesLista" class="list"></div>
+    <div class="row-head"><h2>Referencias en el texto, por modelo</h2><button id="recargarRefs" class="ghost">Actualizar</button></div>
+    <p class="muted">Los enlaces y la bibliografía que la IA escribe dentro de la respuesta también se marcan (¿existen?). El ✗ cuenta contra el <b>modelo</b> que la escribió, no contra la web. Con el mismo umbral y regla que las fuentes (solo cuentas), ese modelo recibe en su sistema el aviso de citar solo las fuentes consultadas y no inventar. El ✓ en un enlace suma además como voto real de su dominio en la búsqueda. Tarda hasta 10 min en aplicarse.</p>
+    <div id="refsLista" class="list"></div>
   </section>
 
   <section id="t-claves" class="tab hidden">
@@ -260,7 +263,7 @@ let estado = null;
 function abrir(tab) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "t-" + tab));
-  ({ estado: cargarEstado, uso: cargarUso, comunidad: () => { cargarPropuestas(); cargarRed(); cargarFuentes(); }, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
+  ({ estado: cargarEstado, uso: cargarUso, comunidad: () => { cargarPropuestas(); cargarRed(); cargarFuentes(); cargarRefs(); }, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) abrir(b.dataset.tab); });
 
@@ -392,6 +395,29 @@ async function cargarFuentes() {
   } catch (e) { aviso("No se pudo leer la verificación de fuentes: " + e.message, "bad"); }
 }
 $("recargarFuentes").addEventListener("click", cargarFuentes);
+async function cargarRefs() {
+  try {
+    const [{ modelos, votos, aviso: av }, est] = await Promise.all([api("/api/referencias"), traerEstado().catch(() => ({}))]);
+    const umbral = est?.ajustes?.fuentesVetoMin || 3;
+    const filas = Object.entries(modelos || {}).sort((a, b) => b[1].falsa - a[1].falsa || b[1].real - a[1].real);
+    $("refsLista").innerHTML = (av ? '<p class="muted">' + esc(av) + "</p>" : "")
+      + '<p class="muted">' + num(votos) + " verificaciones · umbral " + num(umbral) + "</p>"
+      + (filas.map(([m, r]) => {
+        const avisado = r.falsa >= umbral && r.falsa > 2 * r.real;
+        const estado = avisado ? '<span class="badge bad">con aviso: no inventar</span>' : r.real > r.falsa ? '<span class="badge ok">fiable</span>' : '<span class="badge warn">en revisión</span>';
+        return '<div class="item"><div class="item-head"><b>' + esc(m) + "</b>" + estado + '<span class="muted">cuentas: ✓ ' + num(r.real) + " · ✗ " + num(r.falsa) + " — con modo prueba: ✓ " + num(r.realTodos) + " · ✗ " + num(r.falsaTodos) + '</span><button class="ghost" data-restablecer-ref="' + esc(m) + '">Restablecer</button></div></div>';
+      }).join("") || '<p class="muted">Todavía nadie verificó referencias.</p>');
+  } catch (e) { aviso("No se pudo leer la verificación de referencias: " + e.message, "bad"); }
+}
+$("recargarRefs").addEventListener("click", cargarRefs);
+$("refsLista").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-restablecer-ref]");
+  if (!b) return;
+  const m = b.dataset.restablecerRef;
+  if (!confirm("¿Borrar todos los votos de referencias de " + m + "? Deja de recibir el aviso (en ≤10 min).")) return;
+  try { const r = await api("/api/referencias/restablecer", { method: "POST", body: JSON.stringify({ modelo: m }) }); aviso("✓ " + m + " restablecido (" + r.borrados + " votos borrados)"); cargarRefs(); }
+  catch (err) { aviso("No se pudo restablecer: " + err.message, "bad"); }
+});
 $("fuentesLista").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-restablecer]");
   if (!b) return;

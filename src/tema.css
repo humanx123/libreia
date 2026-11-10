@@ -124,6 +124,10 @@ button:disabled{opacity:.55;cursor:wait}
 .verif-msg{color:var(--muted);font:10.5px var(--mono)}
 .verif-msg.bad{color:var(--red)}
 .sources li.voto-falsa>a{text-decoration:line-through;text-decoration-color:var(--red);opacity:.7}
+.sources.refs{border-top-color:var(--amber, var(--accent-ink));margin-top:10px}
+.sources.refs .sources-title{color:var(--amber, var(--accent-ink))}
+.sources li .ref-texto{color:var(--paper);font-style:italic}
+.sources li.voto-falsa>.ref-texto{text-decoration:line-through;text-decoration-color:var(--red);opacity:.7}
 .msg-meta{font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
 .message.error .message-body{color:var(--error);border-left:4px solid var(--red);padding-left:10px}
 .message.trial .message-body{color:var(--amber);border-left-color:var(--amber)}
