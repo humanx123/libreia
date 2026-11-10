@@ -184,7 +184,7 @@ func desinstalar() error {
 // instalarOllama descarga el instalador oficial de Ollama, lo abre y espera a que el servidor responda.
 func instalarOllama() error {
 	const url = "https://ollama.com/download/OllamaSetup.exe"
-	fmt.Println("\nDescargando el instalador oficial de Ollama (unos 1-2 GB)…")
+	fmt.Println("\nDescargando el instalador oficial de Ollama (cerca de 1 GB)…")
 	res, err := http.Get(url)
 	if err != nil {
 		return err

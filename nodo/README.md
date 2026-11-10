@@ -37,7 +37,7 @@ Necesita Go 1.24 o superior (las descargas oficiales se compilan con Go 1.27.4: 
 
 ```
 go install github.com/tc-hib/go-winres@latest
-go-winres simply --icon icono.png --manifest cli --product-name "LibreIA Nodo" --product-version 1.0.0.0 --file-version 1.0.0.0 --original-filename LibreIA-Nodo.exe --arch amd64,arm64
+go-winres simply --icon icono.png --manifest cli --product-name "LibreIA Nodo" --product-version 1.0.1.0 --file-version 1.0.1.0 --original-filename LibreIA-Nodo.exe --arch amd64,arm64
 ```
 
 Protocolo (lado del servidor): [`nube/src/red.js`](../nube/src/red.js). Software libre, AGPL-3.0.

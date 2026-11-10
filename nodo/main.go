@@ -37,7 +37,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 const servidorPorDefecto = "wss://libreia-api.libreia-chat-mobile.workers.dev/v1/red/conectar"
 
 // Proveedor: un servidor local compatible con la API de OpenAI.
@@ -76,7 +76,7 @@ type Config struct {
 	Modelo    string      `json:"modelo"`
 	Nombre    string      `json:"nombre"`
 	Propios   []Proveedor `json:"proveedoresPropios,omitempty"`
-	Servidor  string      `json:"servidor,omitempty"`
+	Servidor  string      `json:"-"` // solo para pruebas (--servidor); no se guarda
 	// La persona dijo que no quiere instalarlo en el ordenador (no se vuelve a preguntar).
 	NoInstalar bool `json:"noInstalar,omitempty"`
 }
@@ -85,7 +85,6 @@ var (
 	reToken  = regexp.MustCompile(`^n1\.[0-9a-f]{32}\.[0-9a-f]{16}\.\d{1,9}\.[0-9a-f]{32}$`)
 	reAlias  = regexp.MustCompile(`[^A-Za-z0-9_ .:/@+-]`) // lo mismo que acepta el servidor
 	rePiensa = regexp.MustCompile(`(?s)<think>.*?(</think>|$)`)
-	entrada  = bufio.NewReader(os.Stdin)
 	cliente  = &http.Client{}
 )
 
@@ -123,17 +122,33 @@ func (c Config) completa() bool {
 
 func hora() string { return time.Now().Format("15:04:05") }
 
+// lineas: lo que escribe la persona, línea a línea. Un único lector del teclado para todo el
+// programa (dos lectores a la vez se repartirían las líneas y el menú ignoraría opciones).
+var lineas = make(chan string)
+
+func leerTeclado() {
+	r := bufio.NewReader(os.Stdin)
+	for {
+		l, err := r.ReadString('\n')
+		if l != "" {
+			lineas <- strings.TrimSpace(l)
+		}
+		if err != nil {
+			close(lineas)
+			return
+		}
+	}
+}
+
 // leer muestra una pregunta y devuelve la línea escrita (sin espacios a los lados).
 func leer(pregunta string) string {
 	fmt.Print(pregunta)
-	linea, err := entrada.ReadString('\n')
-	if err != nil && linea == "" {
-		if errors.Is(err, io.EOF) {
-			fmt.Println("\nHasta pronto.")
-			os.Exit(0)
-		}
+	l, ok := <-lineas
+	if !ok {
+		fmt.Println("\nHasta pronto.")
+		os.Exit(0)
 	}
-	return strings.TrimSpace(linea)
+	return l
 }
 
 func pausa(texto string) {
@@ -869,16 +884,7 @@ func ejecutar(c *Config) {
 	ctx, cancelar := context.WithCancel(context.Background())
 	hecho := make(chan error, 1)
 	go func() { hecho <- conectar(ctx, *c) }()
-	teclas := make(chan string, 1)
-	go func() {
-		for {
-			l, err := entrada.ReadString('\n')
-			if err != nil {
-				return // sin consola (inicio automático): el nodo sigue hasta cerrar el proceso
-			}
-			teclas <- strings.ToLower(strings.TrimSpace(l))
-		}
-	}()
+	teclas := (<-chan string)(lineas)
 	for {
 		select {
 		case err := <-hecho:
@@ -893,8 +899,12 @@ func ejecutar(c *Config) {
 				pausa("")
 			}
 			return
-		case t := <-teclas:
-			if t == "m" {
+		case t, ok := <-teclas:
+			if !ok {
+				teclas = nil // sin teclado (inicio automático): el nodo sigue hasta cerrar el proceso
+				continue
+			}
+			if strings.ToLower(t) == "m" {
 				cancelar()
 				<-hecho
 				return
@@ -905,6 +915,7 @@ func ejecutar(c *Config) {
 
 func main() {
 	prepararConsola()
+	go leerTeclado()
 	token := flag.String("token", "", "token de nodo (modo sin asistente)")
 	api := flag.String("api", "", "servidor local compatible con OpenAI")
 	modelo := flag.String("modelo", "", "modelo a usar")
