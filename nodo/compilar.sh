@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 rm -rf dist && mkdir -p dist
 compilar() { # sistema arquitectura nombre
-  CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags "-s -w" -o "dist/$3" .
+  CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -buildvcs=false -ldflags "-s -w" -o "dist/$3" .
   echo "  $3"
 }
 compilar windows amd64 LibreIA-Nodo.exe

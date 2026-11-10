@@ -33,7 +33,7 @@ LibreIA-Nodo --menu        # abrir el menú en vez de conectar
 
 ## Compilar
 
-Necesita Go 1.24 o superior. `./compilar.sh` deja en `dist/` los programas para Windows (x64 y ARM), Linux (x64 y ARM) y macOS (Apple y Intel), con `SHA256SUMS.txt`. El icono y los datos de versión de Windows están en `rsrc_windows_*.syso`, generados con:
+Necesita Go 1.24 o superior (las descargas oficiales se compilan con Go 1.27.4: con esa versión, `./compilar.sh` da exactamente las mismas huellas SHA-256). `./compilar.sh` deja en `dist/` los programas para Windows (x64 y ARM), Linux (x64 y ARM) y macOS (Apple y Intel), con `SHA256SUMS.txt`. El icono y los datos de versión de Windows están en `rsrc_windows_*.syso`, generados con:
 
 ```
 go install github.com/tc-hib/go-winres@latest
