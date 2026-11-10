@@ -10,7 +10,7 @@ CHROME=${CHROME:-$(ls /root/.cache/ms-playwright/chromium_headless_shell-*/*/chr
 [ -x "$CHROME" ] || { echo "No encuentro Chrome sin interfaz (define CHROME=...)"; exit 1; }
 PUERTO=8986
 
-rm -rf "$KIT" && mkdir -p "$KIT"/{01-perfil,02-portadas,03-publicaciones,04-historias,05-impresos}
+rm -rf "$KIT" && mkdir -p "$KIT"/{01-perfil,02-portadas,03-publicaciones,04-historias,05-impresos,06-stickers/whatsapp}
 python3 -m http.server $PUERTO --bind 127.0.0.1 >/dev/null 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
@@ -18,8 +18,10 @@ sleep 1
 URL="http://127.0.0.1:$PUERTO/promo/plantilla.html"
 
 FALLOS=0
-png() { # salida pieza ancho alto
-  "$CHROME" --no-sandbox --disable-gpu --hide-scrollbars --window-size="$3,$4" --virtual-time-budget=4000 \
+png() { # salida pieza ancho alto [transparente]
+  local fondo=()
+  [ "${5:-}" = transparente ] && fondo=(--default-background-color=00000000)
+  "$CHROME" --no-sandbox --disable-gpu --hide-scrollbars "${fondo[@]}" --window-size="$3,$4" --virtual-time-budget=4000 \
     --screenshot="$KIT/$1" "$URL?t=$2&w=$3&h=$4" >/dev/null 2>&1
   # La plantilla pone en <title> «OK» o «DESBORDA: …» si algo se sale del lienzo.
   local estado
@@ -59,6 +61,29 @@ pdf 05-impresos/cartel-A4.pdf cartel-a4 794 1123 A4
 png 05-impresos/cartel-A4-300ppp.png cartel-a4 2480 3508
 pdf 05-impresos/tarjetas-4xA6-en-A4.pdf tarjetas-a4 794 1123 A4
 png 05-impresos/tarjetas-4xA6-en-A4-300ppp.png tarjetas-a4 2480 3508
+
+echo "== Stickers (PNG transparente, WebP 512 para WhatsApp y hoja A4 para papel adhesivo)"
+n=1
+for p in circulo sello escaneame bien-comun bocadillo apk; do
+  png "06-stickers/0$n-sticker-$p.png" "sticker-$p" 1200 1200 transparente
+  png "06-stickers/whatsapp/0$n-$p.png" "sticker-$p" 512 512 transparente
+  n=$((n + 1))
+done
+# WhatsApp pide WebP de 512×512, fondo transparente y menos de 100 KB.
+python3 -I -c '
+import sys, pathlib
+from PIL import Image
+for png in sorted(pathlib.Path(sys.argv[1]).glob("*.png")):
+    webp = png.with_suffix(".webp")
+    for calidad in (90, 80, 70, 60, 50):
+        Image.open(png).save(webp, "WEBP", quality=calidad, method=6)
+        if webp.stat().st_size < 100_000: break
+    else: sys.exit(f"{webp.name} pasa de 100 KB")
+    png.unlink()
+    print(f"  whatsapp/{webp.name} ({webp.stat().st_size // 1024} KB)")
+' "$KIT/06-stickers/whatsapp"
+pdf 06-stickers/hoja-stickers-A4.pdf stickers-a4 794 1123 A4
+png 06-stickers/hoja-stickers-A4-300ppp.png stickers-a4 2480 3508
 
 [ "$FALLOS" = 0 ] || { echo "✗ $FALLOS piezas se salen del lienzo"; exit 1; }
 cp promo/LEEME.md promo/textos.md "$KIT/"

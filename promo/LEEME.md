@@ -9,6 +9,7 @@ Imágenes listas para compartir LibreIA en redes y en papel. Todo es libre: úsa
 | `03-publicaciones` | 5 publicaciones, cada una en vertical 4:5 (1080×1350) y cuadrada (1080×1080) | Feed de Instagram y Facebook. Juntas forman un carrusel: manifiesto → privacidad → modos → cómputo → QR. |
 | `04-historias` | 3 historias de 1080×1920 | Historias de Instagram y Facebook, y estados de WhatsApp. Arriba y abajo hay margen para los botones de la app. |
 | `05-impresos` | Flyer A5, cartel A4 y 4 tarjetas A6 en una hoja A4. En PDF (para imprimir) y en PNG a 300 ppp | Universidades, bibliotecas, cafés, centros sociales… |
+| `06-stickers` | 6 stickers con QR y fondo transparente (1200×1200), los mismos en WebP 512×512 para WhatsApp (`whatsapp/`) y una hoja A4 con los seis para imprimir | Para pegarlos en el portátil, el móvil o la botella, en historias o como stickers de WhatsApp. |
 | `qr` | Los QR en SVG (vectoriales) | Para tus propios diseños |
 
 ## Los QR
@@ -22,6 +23,12 @@ Imágenes listas para compartir LibreIA en redes y en papel. Todo es libre: úsa
 - Imprime los PDF **al 100 %** (sin «ajustar a la página») y **con gráficos de fondo** activados.
 - Las tarjetas A6 se cortan por las líneas discontinuas: salen 4 por hoja.
 - Si imprimes en blanco y negro, los QR siguen funcionando: son negro sobre blanco.
+
+## Stickers
+
+- **Digitales:** los PNG de `06-stickers` tienen fondo transparente: ponlos encima de una historia o una foto.
+- **WhatsApp:** WhatsApp no importa archivos sueltos. Usa una app para crear stickers personales (por ejemplo, «Sticker Maker») y añade los seis WebP de `whatsapp/`: ya cumplen su formato (512×512, transparentes y de menos de 100 KB).
+- **En papel:** imprime `hoja-stickers-A4.pdf` al 100 % en papel adhesivo y recorta por la línea discontinua. Cada sticker mide unos 9 cm y su QR se lee a un palmo de distancia.
 
 ## Textos
 

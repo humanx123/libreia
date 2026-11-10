@@ -224,6 +224,7 @@ code{font-family:var(--mono)}
   box-shadow:.06em .06em 0 var(--red);word-break:break-all;transition:transform .15s}
 .mail:hover{transform:rotate(-1deg) scale(1.01)}
 .contact-links{display:flex;flex-wrap:wrap;gap:18px}
+.redes-label{margin:44px 0 16px}
 
 /* footer */
 .foot{background:var(--paper);color:var(--ink);overflow:hidden}

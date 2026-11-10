@@ -66,6 +66,9 @@ export const HTML = `<!doctype html>
     <div class="row-head"><h2>Red de nodos (voluntarios)</h2><button id="recargarRed" class="ghost">Actualizar</button></div>
     <p class="muted">Ordenadores de voluntarios que responden en el modo Comunidad. Solo pasan a «activo» tras responder bien una pregunta de control. Bloquear un nodo cierra todos los nodos de esa cuenta y le impide volver a conectarse. Aquí nunca se ven mensajes.</p>
     <div id="redLista" class="list"></div>
+    <div class="row-head"><h2>Fuentes verificadas por los usuarios</h2><button id="recargarFuentes" class="ghost">Actualizar</button></div>
+    <p class="muted">Bajo cada respuesta, las personas marcan si una fuente es real o no. Se cuentan personas distintas por dominio. Un dominio deja de usarse en la búsqueda cuando lo marcan como falso al menos el umbral de personas (Ajustes) y lo falso dobla a lo real; los confirmados salen primero. No se guardan URLs ni quién votó.</p>
+    <div id="fuentesLista" class="list"></div>
 
   <section id="t-claves" class="tab hidden">
     <h2>Claves de proveedores</h2>
@@ -110,6 +113,7 @@ export const HTML = `<!doctype html>
       <label>Máximo de mensajes al día por cuenta (10–5000; Fusión cuenta por 4)<input id="aDiaN" type="number" min="10" max="5000"></label>
       <label class="check"><input id="aWeb" type="checkbox"> Búsqueda web en las respuestas (fuentes reales citadas)</label>
       <label>Fuentes por respuesta (1–8)<input id="aWebN" type="number" min="1" max="8"></label>
+      <label>Personas que deben marcar un dominio como falso para dejar de usarlo (2–50)<input id="aVetoN" type="number" min="2" max="50"></label>
       <h3>Instrucciones de sistema por modo</h3>
       <p class="muted">Vacío = la de fábrica (se muestra en gris). Definen la personalidad de cada modo.</p>
       <div id="aSistema"></div>
@@ -255,7 +259,7 @@ let estado = null;
 function abrir(tab) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "t-" + tab));
-  ({ estado: cargarEstado, uso: cargarUso, comunidad: () => { cargarPropuestas(); cargarRed(); }, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
+  ({ estado: cargarEstado, uso: cargarUso, comunidad: () => { cargarPropuestas(); cargarRed(); cargarFuentes(); }, claves: cargarClaves, motor: cargarMotor, ajustes: cargarAjustes, registro: cargarRegistro, cuenta: () => {} })[tab]();
 }
 $("tabs").addEventListener("click", (e) => { const b = e.target.closest("button[data-tab]"); if (b) abrir(b.dataset.tab); });
 
@@ -372,6 +376,21 @@ async function cargarRed() {
   } catch (e) { aviso("No se pudo leer la red de nodos: " + e.message, "bad"); }
 }
 $("recargarRed").addEventListener("click", cargarRed);
+async function cargarFuentes() {
+  try {
+    const [{ dominios, votos, aviso: av }, est] = await Promise.all([api("/api/fuentes"), traerEstado().catch(() => ({}))]);
+    const umbral = est?.ajustes?.fuentesVetoMin || 3;
+    const filas = Object.entries(dominios || {}).sort((a, b) => b[1].falsa - a[1].falsa || b[1].real - a[1].real);
+    $("fuentesLista").innerHTML = (av ? '<p class="muted">' + esc(av) + "</p>" : "")
+      + '<p class="muted">' + num(votos) + " verificaciones · umbral " + num(umbral) + "</p>"
+      + (filas.map(([d, r]) => {
+        const vetado = r.falsa >= umbral && r.falsa > 2 * r.real;
+        const estado = vetado ? '<span class="badge bad">no se usa</span>' : r.real > r.falsa ? '<span class="badge ok">confirmada</span>' : '<span class="badge warn">en revisión</span>';
+        return '<div class="item"><div class="item-head"><b>' + esc(d) + "</b>" + estado + '<span class="muted">✓ real ' + num(r.real) + " · ✗ falsa " + num(r.falsa) + "</span></div></div>";
+      }).join("") || '<p class="muted">Todavía nadie verificó fuentes.</p>');
+  } catch (e) { aviso("No se pudo leer la verificación de fuentes: " + e.message, "bad"); }
+}
+$("recargarFuentes").addEventListener("click", cargarFuentes);
 $("redLista").addEventListener("click", async (e) => {
   const des = e.target.closest("[data-desbloquear]");
   if (des) {
@@ -562,7 +581,7 @@ async function cargarAjustes() {
   try {
     const s = await traerEstado(), a = s.ajustes;
     $("aLimite").value = a.limitePorMinuto; $("aMant").checked = !!a.mantenimiento; $("aMantMsg").value = a.mensajeMantenimiento || "";
-    $("aWeb").checked = a.busquedaWeb !== false; $("aCuenta").checked = a.requerirCuenta !== false; $("aWebN").value = a.resultadosWeb || 5;
+    $("aWeb").checked = a.busquedaWeb !== false; $("aCuenta").checked = a.requerirCuenta !== false; $("aWebN").value = a.resultadosWeb || 5; $("aVetoN").value = a.fuentesVetoMin || 3;
     $("aInvitados").checked = a.invitados !== false; $("aCaptcha").checked = a.captchaRegistro !== false; $("aComunidad").checked = a.modoComunidad !== false; $("aInvN").value = a.mensajesInvitado || 10; $("aDiaN").value = a.mensajesDiaCuenta || 300;
     $("aSistema").innerHTML = MODOS.map(([id, nombre]) =>
       '<label>' + nombre + '<textarea data-sistema="' + id + '" maxlength="4000" placeholder="' + esc(s.sistemaPorDefecto[id]) + '">' + esc(a.sistema?.[id] || "") + "</textarea></label>").join("");
@@ -574,7 +593,7 @@ $("ajustesForm").addEventListener("submit", (e) => {
   if ($("aMant").checked && !confirm("El modo mantenimiento detiene la app para todos los usuarios. ¿Activarlo?")) return;
   ocupado(e.submitter, async () => {
     try {
-      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, captchaRegistro: $("aCaptcha").checked, modoComunidad: $("aComunidad").checked, mensajesInvitado: +$("aInvN").value, mensajesDiaCuenta: +$("aDiaN").value, resultadosWeb: +$("aWebN").value }) });
+      await api("/api/ajustes", { method: "PUT", body: JSON.stringify({ limitePorMinuto: +$("aLimite").value, mantenimiento: $("aMant").checked, mensajeMantenimiento: $("aMantMsg").value, sistema, busquedaWeb: $("aWeb").checked, requerirCuenta: $("aCuenta").checked, invitados: $("aInvitados").checked, captchaRegistro: $("aCaptcha").checked, modoComunidad: $("aComunidad").checked, mensajesInvitado: +$("aInvN").value, mensajesDiaCuenta: +$("aDiaN").value, resultadosWeb: +$("aWebN").value, fuentesVetoMin: +$("aVetoN").value }) });
       aviso("✓ Ajustes guardados. La app los usa en menos de 30 s.");
     } catch (err) { aviso(err.message, "bad"); }
   });

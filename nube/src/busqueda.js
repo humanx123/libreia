@@ -9,7 +9,7 @@ const MAX_EXTRACTO = 700;
 
 const limpiar = (t) => String(t || "").replace(/\s+/g, " ").trim();
 
-function dominio(url) {
+export function dominio(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
@@ -44,19 +44,49 @@ async function wikipedia(consulta, n) {
   return paginas.map((p) => ({ titulo: limpiar(p.title), url: p.fullurl, extracto: limpiar(p.extract) }));
 }
 
+/** Umbral por defecto: personas distintas que marcan un dominio como falso antes de dejar de usarlo. */
+export const UMBRAL_VETO = 3;
+
+/** ¿La comunidad descartó este dominio? Hace falta el umbral y que lo falso doble a lo real. */
+export function dominioVetado(rep, umbral = UMBRAL_VETO) {
+  return !!rep && rep.falsa >= umbral && rep.falsa > 2 * rep.real;
+}
+
+/**
+ * Aplica la verificación de los usuarios a una lista de resultados: quita los dominios vetados y
+ * pone primero los que la comunidad confirmó (saldo real − falso positivo), sin cambiar el orden
+ * del buscador entre los demás. Devuelve { lista, vetados: [dominios quitados] }.
+ */
+export function aplicarReputacion(resultados, reputacion, umbral = UMBRAL_VETO) {
+  if (!reputacion) return { lista: resultados, vetados: [] };
+  const vetados = new Set();
+  const saldo = (r) => {
+    const rep = reputacion[r.dominio];
+    return rep ? Math.max(0, rep.real - rep.falsa) : 0;
+  };
+  const lista = resultados
+    .filter((r) => (dominioVetado(reputacion[r.dominio], umbral) ? (vetados.add(r.dominio), false) : true))
+    .map((r, i) => ({ r, i, s: saldo(r) > 0 ? 1 : 0 }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .map((x) => x.r);
+  return { lista, vetados: [...vetados] };
+}
+
 /**
  * Busca y devuelve hasta n fuentes únicas: [{ n, titulo, url, dominio, extracto }].
- * Nunca lanza: devuelve { fuentes, motor, error }.
+ * opciones.reputacion: { dominio: { real, falsa } } votado por los usuarios (ver aplicarReputacion).
+ * Nunca lanza: devuelve { fuentes, motor, error, vetados }.
  */
-export async function buscarWeb(consulta, n = 5) {
+export async function buscarWeb(consulta, n = 5, { reputacion = null, umbral = UMBRAL_VETO } = {}) {
   const q = limpiar(consulta).slice(0, 300);
   if (!q) return { fuentes: [], motor: null, error: "consulta vacía" };
   const errores = [];
   for (const [nombre, fn] of [["keenable", keenable], ["wikipedia", wikipedia]]) {
     try {
       const vistos = new Set();
-      const fuentes = [];
-      for (const r of await fn(q, n)) {
+      const candidatas = [];
+      // Se piden unas cuantas de más por si la comunidad vetó alguna.
+      for (const r of await fn(q, reputacion ? n + 3 : n)) {
         if (!/^https?:\/\//.test(r.url) || !r.extracto) continue;
         // Una misma página a veces sale dos veces (HTML y PDF): se deja la primera.
         const clave = r.url.split(/[?#]/)[0].replace(/\/$/, "");
@@ -65,16 +95,17 @@ export async function buscarWeb(consulta, n = 5) {
         const dom = dominio(r.url);
         const t = r.titulo.replace(/^['"«“]+|['"»”]+$/g, "").trim();
         const titulo = !t || /^(untitled|sin título)$/i.test(t) ? dom : t;
-        fuentes.push({ n: fuentes.length + 1, titulo: titulo.slice(0, 160), url: r.url, dominio: dom, extracto: r.extracto.slice(0, MAX_EXTRACTO) });
-        if (fuentes.length >= n) break;
+        candidatas.push({ titulo: titulo.slice(0, 160), url: r.url, dominio: dom, extracto: r.extracto.slice(0, MAX_EXTRACTO) });
       }
-      if (fuentes.length) return { fuentes, motor: nombre, error: errores.join(" | ") || null };
-      errores.push(`${nombre}: sin resultados`);
+      const { lista, vetados } = aplicarReputacion(candidatas, reputacion, umbral);
+      const fuentes = lista.slice(0, n).map((f, i) => ({ n: i + 1, ...f }));
+      if (fuentes.length) return { fuentes, motor: nombre, error: errores.join(" | ") || null, vetados };
+      errores.push(`${nombre}: ${vetados.length ? "solo dominios descartados por la comunidad" : "sin resultados"}`);
     } catch (e) {
       errores.push(`${nombre}: ${e.name === "TimeoutError" ? "tiempo agotado" : e.message}`);
     }
   }
-  return { fuentes: [], motor: null, error: errores.join(" | ") };
+  return { fuentes: [], motor: null, error: errores.join(" | "), vetados: [] };
 }
 
 /** ¿Merece la pena buscar? Saludos y mensajes muy cortos no aportan nada a un buscador. */

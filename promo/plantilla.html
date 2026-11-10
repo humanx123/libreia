@@ -34,6 +34,8 @@ html,body{background:transparent;-webkit-print-color-adjust:exact;print-color-ad
 .resalta{display:inline-block;width:max-content;margin-top:.08em;padding:.06em .1em 0;background:var(--cyan);color:var(--ink);box-shadow:.07em .07em 0 var(--paper)}
 .papel .resalta,.cian .resalta{box-shadow:.07em .07em 0 var(--ink)}
 .cian .resalta{background:var(--ink);color:var(--cyan)}
+.rojo .tachado{color:#090b1099}.rojo .tachado::after{background:var(--ink)}
+.bc-tinta .qr .caja{box-shadow:calc(var(--u)*1.4) calc(var(--u)*1.4) 0 var(--cyan)}
 .sub{font-size:calc(var(--u)*3.6);line-height:1.35;max-width:88%}
 .sub b{font-weight:900}
 .logo{font-family:Anton,Impact,sans-serif;text-transform:uppercase;line-height:1;letter-spacing:.01em}
@@ -66,6 +68,18 @@ html,body{background:transparent;-webkit-print-color-adjust:exact;print-color-ad
 .corte::before,.corte::after{content:"";position:absolute;background:repeating-linear-gradient(90deg,#090b1088 0 8px,transparent 8px 14px)}
 .corte::before{left:0;right:0;top:50%;height:1px}
 .corte::after{top:0;bottom:0;left:50%;width:1px;background:repeating-linear-gradient(180deg,#090b1088 0 8px,transparent 8px 14px)}
+/* Stickers: cada uno cabe en una caja de 100u×100u. El borde blanco es el troquel (vinilo). */
+.pegatinas{background:transparent}
+.hoja{background:#fff;color:var(--ink)}
+.peg{display:grid;place-items:center}
+.lienzo>.peg{position:absolute;inset:0}
+.troquel{background:#fff}
+.troquel,.troquel-svg{filter:drop-shadow(0 calc(var(--u)*.8) calc(var(--u)*1.1) rgba(0,0,0,.38))}
+.linea-corte{display:none}
+/* En la hoja para imprimir: sin sombra y con la línea de corte discontinua. */
+.hoja .troquel,.hoja .troquel-svg{filter:none}
+.hoja .troquel{outline:1px dashed #090b1080}
+.hoja .linea-corte{display:inline}
 </style></head>
 <body>
 <script>
@@ -88,6 +102,87 @@ const PIE = (url = SITIO) => `<div class="pie">${LOGO()}<span class="mono url">$
 const TITULAR = (tam = 13) => `<h1 class="disp titular" style="font-size:calc(var(--u)*${tam})"><span>La IA es</span><span class="tachado">propiedad privada</span><span class="resalta">bien común.</span></h1>`;
 const QRBOX = (cual, lado, texto) => `<div class="qr" style="--qr:calc(var(--u)*${lado})"><div class="caja"><img src="${QR[cual]}" alt=""></div>${texto ? `<p class="mono txt">${texto}</p>` : ""}</div>`;
 const pad = (a, b = a) => `padding:calc(var(--u)*${a}) calc(var(--u)*${b})`;
+const U = (n) => `calc(var(--u)*${n})`;
+
+// ---- STICKERS: cada uno dibujado dentro de una caja de 100u (deja margen para la sombra).
+const STICKERS = {
+  // Redondo con texto en anillo y el QR de probar.
+  circulo: () => `
+    <div class="troquel" style="width:${U(92)};height:${U(92)};border-radius:50%;padding:${U(2.6)}">
+      <div class="rejilla" style="position:relative;width:100%;height:100%;border-radius:50%;background-color:var(--ink);color:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${U(1.6)}">
+        <svg viewBox="0 0 100 100" style="position:absolute;inset:0;width:100%;height:100%"><path id="aro" d="M50,50 m-39,0 a39,39 0 1,1 78,0 a39,39 0 1,1 -78,0" fill="none"/>
+          <circle cx="50" cy="50" r="36" fill="none" stroke="#53e8d4" stroke-width=".5" stroke-dasharray="1.4 1.4"/>
+          <text font-family="Space Mono" font-weight="700" font-size="6.2" fill="#53e8d4"><textPath href="#aro" textLength="243" lengthAdjust="spacing">IA LIBRE · NEUTRAL · GRATIS · SIN DUEÑOS · CÓDIGO LIBRE ·</textPath></text></svg>
+        ${LOGO(`font-size:${U(7)}`)}
+        ${QRBOX("probar", 25)}
+        <p class="mono" style="font-size:${U(2.6)};color:var(--cyan)">Escanéame</p>
+      </div>
+    </div>`,
+  // El sello del logo, inclinado, con el QR del sitio.
+  sello: () => `
+    <div class="troquel" style="transform:rotate(-4deg);border-radius:${U(4)};padding:${U(2.6)} ${U(4.4)} ${U(4.4)} ${U(2.6)}">
+      <div class="rejilla" style="display:flex;align-items:center;gap:${U(5)};padding:${U(4)} ${U(4.5)};background-color:var(--ink);color:var(--paper);border-radius:${U(1.6)};box-shadow:${U(1.8)} ${U(1.8)} 0 var(--cyan)">
+        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:${U(2.4)}">
+          <div class="logo" style="display:grid;line-height:.82;font-size:${U(12.5)}">LIBRE<b style="font-size:1.62em">IA</b></div>
+          <p class="mono" style="font-size:${U(2.4)};line-height:1.4;color:var(--cyan)">IA libre<br>de la comunidad</p>
+        </div>
+        ${QRBOX("sitio", 27)}
+      </div>
+    </div>`,
+  // Etiqueta cian «Escanéame».
+  escaneame: () => `
+    <div class="troquel" style="transform:rotate(3deg);border-radius:${U(7)};padding:${U(2.6)}">
+      <div class="cian" style="width:${U(64)};display:flex;flex-direction:column;align-items:center;gap:${U(3)};padding:${U(5)} ${U(4)} ${U(4.5)};border-radius:${U(4.6)}">
+        <p class="disp" style="font-size:${U(11)}">Escanéame</p>
+        ${QRBOX("probar", 37)}
+        <div style="display:flex;align-items:center;gap:${U(2)}">${LOGO(`font-size:${U(6.4)}`)}<span class="mono" style="font-size:${U(2.1)};line-height:1.35">IA gratis<br>sin registro</span></div>
+      </div>
+    </div>`,
+  // El lema en papel.
+  "bien-comun": () => BIENCOMUN(),
+};
+// «La IA es bien común» en cuatro colores (papel, tinta, cian, rojo) y con el QR del sitio o el de probar.
+function BIENCOMUN(tema = "papel", qr = "sitio", giro = 2) {
+  const clase = tema === "tinta" ? "rejilla" : tema, fondo = tema === "tinta" ? "background-color:var(--ink);color:var(--paper);" : "";
+  return `
+    <div class="troquel" style="transform:rotate(${giro}deg);border-radius:${U(3.5)};padding:${U(2.6)}">
+      <div class="${clase} bc-${tema}" style="${fondo}width:${U(86)};display:flex;flex-direction:column;gap:${U(3)};padding:${U(4.5)} ${U(5)};border-radius:${U(1.4)}">
+        <div style="display:flex;align-items:center;gap:${U(4)}">
+          <div style="flex:1;min-width:0">${TITULAR(7.4)}</div>
+          ${QRBOX(qr, 22)}
+        </div>
+        <div class="pie" style="padding-top:${U(1.8)};border-top-width:${U(.45)}">${LOGO(`font-size:${U(5)}`)}<span class="mono" style="font-size:${U(2.4)}">${qr === "probar" ? "Pruébala sin registro" : SITIO}</span></div>
+      </div>
+    </div>`;
+}
+const STICKERS2 = {
+  // Bocadillo rojo: la forma es un SVG con el troquel como trazo blanco.
+  bocadillo: () => `
+    <div class="troquel-svg" style="position:relative;width:${U(96)};height:${U(92)}">
+      <svg viewBox="0 0 96 92" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
+        <path class="linea-corte" d="M12,4 H84 Q92,4 92,12 V62 Q92,70 84,70 H38 L18,88 L23,70 H12 Q4,70 4,62 V12 Q4,4 12,4 Z" fill="none" stroke="#090b1080" stroke-width="5.9" stroke-dasharray="1.6 1.1" stroke-linejoin="round"/>
+        <path d="M12,4 H84 Q92,4 92,12 V62 Q92,70 84,70 H38 L18,88 L23,70 H12 Q4,70 4,62 V12 Q4,4 12,4 Z" fill="#ff4b2b" stroke="#fff" stroke-width="5.2" stroke-linejoin="round" paint-order="stroke"/></svg>
+      <div class="rojo" style="position:absolute;left:${U(4)};top:${U(4)};width:${U(88)};height:${U(66)};background:none;display:flex;align-items:center;gap:${U(4)};padding:${U(5)}">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:${U(2.6)}">
+          <p class="disp" style="font-size:${U(8.2)}">¿Y si la IA<br>fuera de<br>todos?</p>
+          <p class="mono" style="font-size:${U(2.3)};line-height:1.4">Pruébala gratis<br>sin registro</p>
+          ${LOGO(`font-size:${U(5.6)}`)}
+        </div>
+        ${QRBOX("probar", 23)}
+      </div>
+    </div>`,
+  // Etiqueta de la app Android con el QR de la APK.
+  apk: () => `
+    <div class="troquel" style="transform:rotate(-3deg);border-radius:${U(5)};padding:${U(2.6)}">
+      <div class="rejilla" style="width:${U(62)};display:flex;flex-direction:column;align-items:center;gap:${U(3)};padding-bottom:${U(4.5)};background-color:var(--ink);color:var(--paper);border-radius:${U(2.6)};overflow:hidden">
+        <div class="mono" style="align-self:stretch;text-align:center;padding:${U(1.6)};background:var(--red);color:var(--ink);font-size:${U(2.6)}">App Android · gratis</div>
+        ${LOGO(`font-size:${U(12)}`)}
+        ${QRBOX("apk", 34)}
+        <p class="mono" style="font-size:${U(2.4)};color:var(--cyan)">Escanea y descárgala</p>
+      </div>
+    </div>`,
+};
+Object.assign(STICKERS, STICKERS2);
 
 const PIEZAS = {
   // ---------------- PERFIL (se recorta en círculo: todo dentro del 70 % central)
@@ -221,7 +316,27 @@ const PIEZAS = {
     </div>`;
     return { cls: "papel", html: `<div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))">${una}${una}${una}${una}</div><div class="corte"></div>` };
   },
+  // Hoja A4 con los seis stickers (~9 cm) para imprimir en papel adhesivo y recortar.
+  "stickers-a4": () => {
+    const celda = Math.floor(Math.min((W - u * 8) / 2, (H - u * 14) / 3));
+    const pegs = Object.values(STICKERS).map((s) => `<div class="peg" style="--u:${celda / 100}px;width:${celda}px;height:${celda}px">${s()}</div>`).join("");
+    return { cls: "hoja", html: `
+      <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,${celda}px);grid-auto-rows:${celda}px;justify-content:center;align-content:center;column-gap:${U(2)}">${pegs}</div>
+      <p class="mono firma" style="text-align:center;font-size:${U(1.45)};padding-bottom:${U(3)}">Imprime al 100 % en papel adhesivo y recorta por la línea discontinua · Hecho xhumanx + IA</p>` };
+  },
 };
+// Hoja A4 con 8 variantes de «bien común» (4 colores × QR del sitio / QR de probar).
+const VARIANTES_BC = [["papel", "sitio", 2], ["tinta", "probar", -2], ["cian", "sitio", -1.5], ["rojo", "probar", 2.5],
+  ["tinta", "sitio", 1.5], ["papel", "probar", -2.5], ["rojo", "sitio", -1], ["cian", "probar", 2]];
+PIEZAS["bien-comun-variedad-a4"] = () => {
+  const celda = Math.floor(Math.min((W - u * 6) / 2, (H - u * 12) / (4 * .64)));
+  const pegs = VARIANTES_BC.map(([t, q, g]) => `<div class="peg" style="--u:${celda / 100}px;width:${celda}px;height:${Math.round(celda * .64)}px">${BIENCOMUN(t, q, g)}</div>`).join("");
+  return { cls: "hoja", html: `
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(2,${celda}px);grid-auto-rows:${Math.round(celda * .64)}px;justify-content:center;align-content:center;column-gap:${U(1.5)}">${pegs}</div>
+    <p class="mono firma" style="text-align:center;font-size:${U(1.45)};padding-bottom:${U(3)}">«La IA es bien común» · 8 variantes · imprime al 100 % en papel adhesivo y recorta por la línea discontinua · Hecho xhumanx + IA</p>` };
+};
+for (const [t, q] of VARIANTES_BC) PIEZAS[`sticker-bien-comun-${t}-${q}`] = () => ({ cls: "pegatinas", html: `<div class="peg">${BIENCOMUN(t, q, 2)}</div>` });
+for (const [nombre, s] of Object.entries(STICKERS)) PIEZAS["sticker-" + nombre] = () => ({ cls: "pegatinas", html: `<div class="peg">${s()}</div>` });
 
 const pieza = PIEZAS[t];
 const div = document.createElement("div");

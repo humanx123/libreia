@@ -8,14 +8,14 @@ import { PROVEEDORES_PROPIOS, leerPropia, motorPropio, sinClave, listarModelos }
 import { motorComunidad, voluntarioDe } from "./horda.js";
 import { igualesSeguro } from "./cifrado.js";
 import { registrarEstadistica, EVENTOS_APP } from "./estadisticas.js";
-import { buscarWeb, vale_la_pena_buscar, contextoFuentes } from "./busqueda.js";
+import { buscarWeb, vale_la_pena_buscar, contextoFuentes, dominio, dominioVetado, UMBRAL_VETO } from "./busqueda.js";
 
 export { Estadisticas } from "./estadisticas.js";
 export { Comunidad } from "./comunidad.js";
 export { RedNodos } from "./red.js";
 import { crearTokenNodo } from "./red.js";
 
-const VERSION = "3.4.1";
+const VERSION = "3.5.0";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -246,6 +246,43 @@ async function manejarV1(request, env, path, ctx) {
     }
   }
 
+  // Verificación de fuentes por los usuarios: «real» o «falsa» (null retira el voto). Mejora la búsqueda:
+  // los dominios que la comunidad marca como falsos dejan de usarse y los confirmados van primero.
+  if (path === "/v1/fuentes/verificar" && request.method === "POST") {
+    if (!env.ESTADISTICAS || !env.INTERNAL_TOKEN) return errorOpenAI("La verificación de fuentes no está disponible", 503, "server_error");
+    if ((await limitePorIp(env, "voto-fuente-ip:" + red, 120)) > 0) return errorOpenAI("Demasiadas verificaciones seguidas. Espera un minuto.", 429, "rate_limit_exceeded");
+    const cuerpo = await leerCuerpo(request, 4096);
+    const datos = cuerpo && typeof cuerpo === "object" && cuerpo !== TOO_LARGE ? cuerpo : {};
+    if (datos.voto !== null && datos.voto !== "real" && datos.voto !== "falsa") return errorOpenAI("El voto debe ser «real», «falsa» o null", 400, "invalid_request_error");
+    let url;
+    try {
+      url = new URL(String(datos.url || ""));
+    } catch {
+      url = null;
+    }
+    if (!url || !/^https?:$/.test(url.protocol) || String(datos.url).length > 2000) return errorOpenAI("URL de fuente inválida", 400, "invalid_request_error");
+    const dom = dominio(url.href);
+    // La misma página con o sin www, #ancla o barra final cuenta como una sola.
+    const pagina = dom + (url.pathname.replace(/\/+$/, "") || "/") + url.search;
+    // Quién vota: la cuenta o, en modo prueba, la instalación de la app (id aleatorio que solo se
+    // manda con las estadísticas activadas). Sin ninguno de los dos no hay forma de contar personas.
+    const instalacion = request.headers.get("X-LibreIA-Instalacion") || "";
+    const votante = cuenta ? "c:" + cuenta.id : /^[0-9a-f-]{36}$/i.test(instalacion) ? "i:" + instalacion.toLowerCase() : null;
+    if (!votante) return errorOpenAI("Para que tu verificación cuente, crea una cuenta gratis o activa las estadísticas anónimas en Configuración.", 403, "voter_required");
+    if ((await limitePorIp(env, "voto-fuente:" + votante, 60)) > 0) return errorOpenAI("Demasiadas verificaciones seguidas. Espera un minuto.", 429, "rate_limit_exceeded");
+    const r = await (await estadisticasDO(env).fetch("https://e/fuentes/votar", {
+      method: "POST",
+      body: JSON.stringify({
+        clave: (await hmacHex(env.INTERNAL_TOKEN, `fuente:${votante}|${pagina}`)).slice(0, 40),
+        votante: (await hmacHex(env.INTERNAL_TOKEN, `fuente-dominio:${votante}|${dom}`)).slice(0, 40),
+        dominio: dom,
+        voto: datos.voto,
+      }),
+    })).json();
+    if (!r.ok) return errorOpenAI(r.error || "No se pudo guardar la verificación", 400, "invalid_request_error");
+    return json({ ok: true, dominio: dom, voto: datos.voto }, 200, CORS_HEADERS);
+  }
+
   if (path === "/v1/chat/completions" && request.method === "POST") {
     if (motor.ajustes.mantenimiento) {
       return errorOpenAI(motor.ajustes.mensajeMantenimiento, 503, "maintenance");
@@ -328,9 +365,12 @@ async function manejarV1(request, env, path, ctx) {
       const ultimo = mensajes[mensajes.length - 1].content;
       if (cuerpo.web !== false && motor.ajustes.busquedaWeb !== false && cuerpo.stream !== true && vale_la_pena_buscar(ultimo)) {
         const consulta = await consultaDeBusqueda(motorUsado, mensajes);
-        const r = await buscarWeb(consulta, Math.min(Math.max(Number(motor.ajustes.resultadosWeb) || 5, 1), 8));
+        const r = await buscarWeb(consulta, Math.min(Math.max(Number(motor.ajustes.resultadosWeb) || 5, 1), 8), {
+          reputacion: await reputacionFuentes(env),
+          umbral: umbralVeto(motor),
+        });
         fuentes = r.fuentes;
-        busqueda = { consulta, motor: r.motor, error: r.error };
+        busqueda = { consulta, motor: r.motor, error: r.error, ...(r.vetados?.length ? { descartadas: r.vetados } : {}) };
         if (fuentes.length) mensajes[0] = { role: "system", content: mensajes[0].content + contextoFuentes(fuentes) };
       }
 
@@ -661,17 +701,36 @@ async function manejarComunidad(request, env, path, cuenta) {
   return fallo("Ruta no encontrada", 404);
 }
 
+// ===== Reputación de fuentes (votada por los usuarios) =====
+const estadisticasDO = (env) => env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global"));
+const umbralVeto = (motor) => Math.min(Math.max(Math.floor(Number(motor.ajustes.fuentesVetoMin)) || UMBRAL_VETO, 2), 50);
+let cacheReputacion = null;
+/** { dominio: { real, falsa } } con caché de 10 min. Si falla, la búsqueda sigue sin ella (null). */
+async function reputacionFuentes(env) {
+  if (cacheReputacion && Date.now() - cacheReputacion.t < 600000) return cacheReputacion.datos;
+  try {
+    const { dominios } = await (await estadisticasDO(env).fetch("https://e/fuentes/reputacion")).json();
+    cacheReputacion = { t: Date.now(), datos: dominios || {} };
+    return cacheReputacion.datos;
+  } catch (e) {
+    console.error("reputación de fuentes:", e.message);
+    return cacheReputacion?.datos || null;
+  }
+}
+
 // ===== Transparencia pública =====
 let cacheTransparencia = null;
 async function transparencia(env, motor) {
   if (cacheTransparencia && Date.now() - cacheTransparencia.t < 300000) return cacheTransparencia.datos;
   const leer = async (fn) => { try { return await fn(); } catch { return null; } };
-  const [uso, cuentas, cadena, nodos] = await Promise.all([
+  const [uso, cuentas, cadena, nodos, fuentesRep] = await Promise.all([
     leer(async () => (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/resumen")).json()),
     leer(async () => (await llamarComunidad(env, "/cuentas/contar", {})).datos),
     leer(async () => (await (await env.ESTADISTICAS.get(env.ESTADISTICAS.idFromName("global")).fetch("https://e/valor?clave=cadena")).json()).valor),
     leer(async () => (env.RED ? (await redNodos(env).fetch("https://red/resumen")).json() : null)),
+    leer(async () => (await estadisticasDO(env).fetch("https://e/fuentes/reputacion")).json()),
   ]);
+  const umbral = umbralVeto(motor);
   const proveedores = Object.keys(motor.catalogo.providers).filter((id) => disponible(motor, id));
   const datos = {
     generado: new Date().toISOString(),
@@ -686,6 +745,12 @@ async function transparencia(env, motor) {
     registro: { captcha: captchaActivo(env, motor) ? env.TURNSTILE_SITEKEY : null },
     // Modo Comunidad (AI Horde): la app lo oculta si está desactivado.
     comunidad: { activa: motor.ajustes.modoComunidad !== false, nodos: nodos?.activos ?? null, modelosNodos: nodos?.modelos ?? [] },
+    // Verificación de fuentes por los usuarios: cuántos votos hay y qué dominios ya no se usan.
+    fuentes: fuentesRep ? {
+      verificaciones: fuentesRep.votos,
+      umbral,
+      descartadas: Object.entries(fuentesRep.dominios || {}).filter(([, r]) => dominioVetado(r, umbral)).map(([d]) => d).sort(),
+    } : null,
     prueba: {
       activa: motor.ajustes.requerirCuenta === false || motor.ajustes.invitados !== false,
       mensajesPorHora: motor.ajustes.requerirCuenta === false ? null : Math.min(Math.max(Math.floor(Number(motor.ajustes.mensajesInvitado)) || 10, 1), 100),
@@ -695,7 +760,7 @@ async function transparencia(env, motor) {
       usdc: cadena?.usdc ? { recibido: cadena.usdc.recibido, pagos: cadena.usdc.donaciones, desde: cadena.usdc.desde } : null,
       nota: "Las direcciones de donación son compartidas con el proyecto Kumo.",
     },
-    privacidad: "No se guardan mensajes, IPs, correos ni contraseñas. Solo números agregados y huellas cifradas irreversibles de las cuentas.",
+    privacidad: "No se guardan mensajes, IPs, correos ni contraseñas. Solo números agregados y huellas cifradas irreversibles de las cuentas. De las verificaciones de fuentes solo se guarda el dominio y el veredicto, con huellas irreversibles (nunca la URL junto a quién votó).",
   };
   cacheTransparencia = { t: Date.now(), datos };
   return datos;

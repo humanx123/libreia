@@ -504,6 +504,7 @@ async function api(request, env, ruta, url) {
       mensajesInvitado: Math.min(Math.max(Math.floor(Number(a.mensajesInvitado)) || 10, 1), 100),
       mensajesDiaCuenta: Math.min(Math.max(Math.floor(Number(a.mensajesDiaCuenta)) || 300, 10), 5000),
       resultadosWeb: Math.min(Math.max(Math.floor(Number(a.resultadosWeb)) || 5, 1), 8),
+      fuentesVetoMin: Math.min(Math.max(Math.floor(Number(a.fuentesVetoMin)) || 3, 2), 50),
     };
     await env.CONFIG.put("motor:ajustes", JSON.stringify(ajustes));
     await registrar(env, request, usuario, `Ajustes guardados (límite ${limite}/min${ajustes.mantenimiento ? ", MANTENIMIENTO ACTIVO" : ""})`);
@@ -537,6 +538,12 @@ async function api(request, env, ruta, url) {
     const r = await comunidad(env, "/propuestas/borrar", { propuesta });
     await registrar(env, request, usuario, `Propuesta #${Number(propuesta)} borrada`);
     return json(r);
+  }
+
+  // --- verificación de fuentes por los usuarios (solo dominios y recuentos: nunca URLs ni quién votó)
+  if (ruta === "/api/fuentes" && metodo === "GET") {
+    if (!env.ESTADISTICAS) return json({ dominios: {}, votos: 0, aviso: "Falta el binding ESTADISTICAS" });
+    return json(await (await estadisticas(env).fetch("https://e/fuentes/reputacion")).json());
   }
 
   // --- red de nodos de voluntarios (modo Comunidad)

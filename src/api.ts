@@ -4,7 +4,7 @@ export const API_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/v1";
 // Public app token (it ships inside the APK): only lets the app call the account endpoints,
 // read the model list and send anonymous events. Chatting requires an account session.
 const APP_TOKEN = "libreia-app-e72d00ec863b469558e65a31d8730d95637afc1c";
-export const APP_VERSION = "0.12.0";
+export const APP_VERSION = "0.12.2";
 
 const isNative = (window as any).Capacitor?.isNativePlatform?.() ?? false;
 export const PLATFORM = isNative ? "android" : "web";
@@ -92,8 +92,11 @@ function messageFrom(status: number, raw: string): string {
   return detail || `HTTP ${status}`;
 }
 
-/** Calls the LibreIA API. The timeout is enforced with a race because Capacitor's fetch ignores AbortSignal on POST. */
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; timeoutMs?: number; auth?: "session" | "app" } = {}): Promise<T> {
+/**
+ * Calls the LibreIA API. The timeout and `signal` (the user's Stop button) are enforced with a race
+ * because Capacitor's fetch ignores AbortSignal on POST. A stop rejects with code "cancelada".
+ */
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; timeoutMs?: number; auth?: "session" | "app"; signal?: AbortSignal } = {}): Promise<T> {
   const headers: Record<string, string> = {
     "X-LibreIA-Plataforma": PLATFORM,
     "X-LibreIA-Version": APP_VERSION,
@@ -112,6 +115,17 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       reject(new ApiError(`Tiempo agotado (${Math.round(timeoutMs / 1000)} s) esperando al servidor`, 0));
     }, timeoutMs);
   });
+  let onStop: (() => void) | undefined;
+  const stopped = new Promise<never>((_, reject) => {
+    if (!opts.signal) return;
+    onStop = () => {
+      reject(new ApiError("Respuesta detenida", 0, "cancelada"));
+      controller.abort();
+    };
+    if (opts.signal.aborted) onStop();
+    else opts.signal.addEventListener("abort", onStop, { once: true });
+  });
+  stopped.catch(() => {}); // only observed through the races below
   try {
     const res = await Promise.race([
       fetch(API_URL + path, {
@@ -121,8 +135,9 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
         signal: controller.signal,
       }),
       timeout,
+      stopped,
     ]);
-    const text = await res.text();
+    const text = await Promise.race([res.text(), timeout, stopped]);
     if (!res.ok) {
       let code = "";
       let data: Record<string, unknown> = {};
@@ -136,10 +151,13 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     }
     return JSON.parse(text) as T;
   } catch (e) {
+    // The browser's fetch rejects on abort too: a user stop is never a connection error.
+    if (opts.signal?.aborted) throw new ApiError("Respuesta detenida", 0, "cancelada");
     if (e instanceof ApiError) throw e;
     throw new ApiError(`No se pudo conectar con el servidor (${(e as Error).message})`, 0);
   } finally {
     clearTimeout(timer);
+    if (onStop) opts.signal?.removeEventListener("abort", onStop);
   }
 }
 

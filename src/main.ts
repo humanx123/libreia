@@ -9,7 +9,8 @@ import { OWN_PROVIDERS, loadOwnKey, saveOwnKey, updateOwnKey, clearOwnKey, ownKe
 import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING, NODE_SCRIPT_URL } from "./contenido";
 
 type Role = "user" | "assistant";
-type Source = { n: number; titulo: string; url: string; dominio: string };
+type Verdict = "real" | "falsa";
+type Source = { n: number; titulo: string; url: string; dominio: string; voto?: Verdict };
 type Meta = { modo: string; proveedor?: string; modelo?: string };
 type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta };
 type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
@@ -68,6 +69,7 @@ if (!MODES.some((m) => m.id === model)) model = "neutral";
 let sending = false;
 let pendingChatId: string | null = null;
 let pendingModel = ""; // mode of the message being answered (the waiting text depends on it)
+let stopReply: (() => void) | null = null; // cancels the request in flight (Stop button)
 let view: View = "chat";
 
 // Chats are stored per account on this device (shared devices keep them apart).
@@ -81,7 +83,7 @@ function cleanSources(v: unknown): Source[] | undefined {
   const out = v
     .filter((f) => f && typeof f === "object" && Number.isInteger(f.n) && f.n >= 1 && f.n <= 99 && typeof f.url === "string" && /^https?:\/\//i.test(f.url))
     .slice(0, 20)
-    .map((f) => ({ n: f.n, url: str(f.url, 2000), titulo: str(f.titulo, 200) || str(f.url, 80), dominio: str(f.dominio, 120) }));
+    .map((f) => ({ n: f.n, url: str(f.url, 2000), titulo: str(f.titulo, 200) || str(f.url, 80), dominio: str(f.dominio, 120), ...(f.voto === "real" || f.voto === "falsa" ? { voto: f.voto as Verdict } : {}) }));
   return out.length ? out : undefined;
 }
 function cleanMeta(v: any): Meta | undefined {
@@ -234,10 +236,16 @@ function renderMarkdown(text: string, fuentes?: Source[]): string {
   }
   return tpl.innerHTML;
 }
+/** Each source can be marked real or not by the user; the votes improve the web search for everyone. */
+function verdictButtons(f: Source): string {
+  const b = (v: Verdict, label: string, title: string) =>
+    `<button type="button" class="verif-btn ${v}" data-verif="${v}" data-src="${Number(f.n) | 0}" aria-pressed="${f.voto === v}" title="${title}">${label}</button>`;
+  return `<div class="verif" role="group" aria-label="¿Es real esta fuente?"><span class="verif-q">¿Es real?</span>${b("real", "✓ Sí", "La fuente existe y dice lo que se cita")}${b("falsa", "✗ No", "La fuente no existe, no funciona o no dice lo que se cita")}<span class="verif-msg" aria-live="polite"></span></div>`;
+}
 function renderSources(fuentes?: Source[]): string {
   if (!fuentes?.length) return "";
-  return `<div class="sources"><div class="sources-title">Fuentes consultadas</div><ol>${fuentes
-    .map((f) => `<li value="${Number(f.n) | 0}"><a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(f.titulo)}</a><span>${esc(f.dominio)}</span></li>`)
+  return `<div class="sources"><div class="sources-title">Fuentes consultadas <span class="sources-hint">· márcalas: ¿son reales?</span></div><ol>${fuentes
+    .map((f) => `<li value="${Number(f.n) | 0}" class="${f.voto ? "voto-" + f.voto : ""}"><a href="${esc(safeUrl(f.url))}" target="_blank" rel="noopener noreferrer nofollow">${esc(f.titulo)}</a><span class="dominio">${esc(f.dominio)}</span>${verdictButtons(f)}</li>`)
     .join("")}</ol></div>`;
 }
 const modeLabel = (id: string) => MODES.find((m) => m.id === id)?.label || id;
@@ -322,7 +330,7 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
       </div>
       <form id="composer" class="composer">
         <textarea id="prompt" placeholder="Escribe tu pregunta…" rows="1"></textarea>
-        <button id="send" class="send-btn" type="submit" title="Enviar">➤</button>
+        <button id="send" class="send-btn" type="submit" title="Enviar" aria-label="Enviar">➤</button>
       </form>
     </div>
     <div id="aboutView" class="page hidden"></div>
@@ -786,7 +794,7 @@ function renderMessages() {
   }
   messagesEl.innerHTML =
     messages
-      .map((m) => {
+      .map((m, i) => {
         let body: string;
         try {
           body =
@@ -800,10 +808,10 @@ function renderMessages() {
           ? `<div class="msg-meta">${esc(modeLabel(m.meta.modo))}${m.meta.proveedor ? ` · respondió ${esc(m.meta.proveedor)}${m.meta.modelo ? ` / ${esc(m.meta.modelo)}` : ""}` : ""}</div>`
           : "";
         const cta = m.cta && session.guest ? `<div class="cta-row"><button type="button" class="primary" data-auth="registro">Crear cuenta gratis</button><button type="button" data-auth="entrar">Ya tengo cuenta</button></div>` : "";
-        return `<div class="message ${m.role}${m.error ? " error" : ""}${m.cta ? " trial" : ""}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${cta}${meta}</div></div>`;
+        return `<div class="message ${m.role}${m.error ? " error" : ""}${m.cta ? " trial" : ""}" data-i="${i}"><div class="avatar">${m.role === "user" ? "TÚ" : "LI"}</div><div class="message-body">${body}${cta}${meta}</div></div>`;
       })
       .join("") +
-    (pendingChatId === chatId ? `<div class="thinking"><i></i>${pendingModel === "comunidad" ? "Esperando a un voluntario de la comunidad…" : prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}</div>` : "");
+    (pendingChatId === chatId ? `<div class="thinking"><i></i>${pendingModel === "comunidad" ? "Esperando a un voluntario de la comunidad…" : prefs.web ? "Buscando fuentes y pensando…" : "Pensando…"}<button type="button" class="stop-inline" data-stop title="Detener la respuesta">■ Detener</button></div>` : "");
   messagesEl.querySelectorAll(".message.assistant pre").forEach((pre) => {
     const b = document.createElement("button");
     b.className = "copy-code";
@@ -857,6 +865,15 @@ $("newChat").addEventListener("click", () => newChat());
 
 messagesEl.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
+  if (t.closest("[data-stop]")) {
+    stopReply?.();
+    return;
+  }
+  const verif = t.closest<HTMLButtonElement>("[data-verif]");
+  if (verif) {
+    void verifySource(verif);
+    return;
+  }
   const sug = t.closest<HTMLElement>("[data-suggest]");
   if (sug) {
     $<HTMLTextAreaElement>("prompt").value = sug.dataset.suggest!;
@@ -879,11 +896,51 @@ messagesEl.addEventListener("click", (e) => {
   }
 });
 
+// ---------------------------------------------------------------- source verification
+/** Marks a source real / not real (clicking the same choice again removes the mark). Saved locally and sent to the server. */
+async function verifySource(btn: HTMLButtonElement) {
+  const li = btn.closest("li")!;
+  const i = Number(btn.closest<HTMLElement>(".message")?.dataset.i);
+  const f = messages[i]?.fuentes?.find((x) => x.n === Number(btn.dataset.src));
+  if (!f) return;
+  const before = f.voto;
+  const choice = btn.dataset.verif as Verdict;
+  const voto: Verdict | undefined = before === choice ? undefined : choice;
+  const msg = li.querySelector<HTMLElement>(".verif-msg")!;
+  const paint = (v: Verdict | undefined) => {
+    li.className = v ? "voto-" + v : "";
+    li.querySelectorAll<HTMLButtonElement>("[data-verif]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.verif === v)));
+  };
+  const store = (v: Verdict | undefined) => {
+    if (v) f.voto = v;
+    else delete f.voto;
+    saveChats();
+    paint(v);
+  };
+  store(voto);
+  msg.className = "verif-msg";
+  msg.textContent = "Enviando…";
+  li.querySelectorAll<HTMLButtonElement>("[data-verif]").forEach((b) => (b.disabled = true));
+  try {
+    await api("/fuentes/verificar", { body: { url: f.url, voto: voto ?? null }, timeoutMs: 15000 });
+    msg.textContent = voto === "real" ? "Gracias: confirmada" : voto === "falsa" ? "Gracias: la búsqueda la tendrá en cuenta" : "Marca quitada";
+  } catch (e) {
+    // The server didn't take it: undo the mark so what is shown is what counts.
+    store(before);
+    msg.className = "verif-msg bad";
+    msg.textContent = (e as ApiError).message;
+  } finally {
+    li.querySelectorAll<HTMLButtonElement>("[data-verif]").forEach((b) => (b.disabled = false));
+  }
+}
+
 // ---------------------------------------------------------------- sending
 async function sendMessage(prompt: string) {
   if (!prompt.trim() || sending) return;
   sending = true;
-  $("send").classList.add("busy");
+  const stop = new AbortController();
+  stopReply = () => stop.abort();
+  setSendButton(true);
   const targetChatId = chatId;
   const usedModel = model;
   pendingModel = usedModel;
@@ -917,6 +974,7 @@ async function sendMessage(prompt: string) {
         ...(propia && usedModel !== "fusion" && usedModel !== "comunidad" ? { propia } : {}),
       },
       timeoutMs: 100000,
+      signal: stop.signal,
     });
     const content = r?.choices?.[0]?.message?.content;
     if (content) {
@@ -932,6 +990,11 @@ async function sendMessage(prompt: string) {
     }
   } catch (e) {
     const err = e as ApiError;
+    if (err.code === "cancelada") {
+      // Marked as error so it is not sent back as context; the question stays for "Reintentar"-style resends.
+      reply({ role: "assistant", content: "■ Respuesta detenida.", error: true });
+      return;
+    }
     const needsAccount = session.guest && err.code !== "own_key_error" && (err.status === 401 || err.status === 403 || (err.status === 429 && /prueba/i.test(err.message)));
     reply({ role: "assistant", content: needsAccount ? `🧪 ${err.message}` : `❌ No se pudo obtener respuesta.\n\n${err.message}`, error: true, cta: needsAccount });
     if (err.status === 401 && /sesi[oó]n/i.test(err.message)) {
@@ -940,16 +1003,31 @@ async function sendMessage(prompt: string) {
     }
   } finally {
     sending = false;
+    stopReply = null;
     pendingChatId = null;
-    $("send").classList.remove("busy");
+    setSendButton(false);
     if (session.active) {
       renderMessages();
       renderChatList();
     }
   }
 }
+/** While a reply is on its way the send button becomes Stop. */
+function setSendButton(busy: boolean) {
+  const b = $<HTMLButtonElement>("send");
+  b.classList.toggle("busy", busy);
+  b.textContent = busy ? "■" : "➤";
+  b.title = busy ? "Detener la respuesta" : "Enviar";
+  b.setAttribute("aria-label", b.title);
+}
+$("send").addEventListener("click", (e) => {
+  if (!sending) return;
+  e.preventDefault(); // it is the Stop button now: don't submit
+  stopReply?.();
+});
 $("composer").addEventListener("submit", (e) => {
   e.preventDefault();
+  if (sending) return; // Enter while answering keeps the draft instead of discarding it
   const ta = $<HTMLTextAreaElement>("prompt");
   const text = ta.value;
   ta.value = "";
@@ -1272,7 +1350,7 @@ $("exportJson").addEventListener("click", () => {
 $("exportMd").addEventListener("click", () => {
   const md = chats
     .filter((c) => c.messages.length)
-    .map((c) => `# ${c.title}\n\n` + c.messages.map((m) => `**${m.role === "user" ? "Tú" : "LibreIA"}:**\n\n${m.content}${m.fuentes?.length ? "\n\nFuentes:\n" + m.fuentes.map((f) => `${f.n}. ${f.titulo} — ${f.url}`).join("\n") : ""}`).join("\n\n---\n\n"))
+    .map((c) => `# ${c.title}\n\n` + c.messages.map((m) => `**${m.role === "user" ? "Tú" : "LibreIA"}:**\n\n${m.content}${m.fuentes?.length ? "\n\nFuentes:\n" + m.fuentes.map((f) => `${f.n}. ${f.titulo} — ${f.url}${f.voto === "real" ? " (verificada: real)" : f.voto === "falsa" ? " (verificada: NO real)" : ""}`).join("\n") : ""}`).join("\n\n---\n\n"))
     .join("\n\n\n");
   download(`libreia-chats-${stamp()}.md`, md, "text/markdown");
   $("settingsStatus").textContent = "✓ Chats exportados en Markdown.";

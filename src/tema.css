@@ -112,7 +112,18 @@ button:disabled{opacity:.55;cursor:wait}
 .sources{border:2px solid var(--line);border-top:4px solid var(--accent-ink);background:var(--sources-bg)}
 .sources-title{font:700 11px var(--mono);color:var(--accent-ink)}
 .sources li a{color:var(--paper);text-decoration:underline;text-decoration-color:var(--accent-ink);text-underline-offset:3px}
-.sources li span{font-family:var(--mono);font-size:10.5px}
+.sources li span.dominio{font-family:var(--mono);font-size:10.5px}
+.sources-hint{color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0}
+.verif{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:5px 0 2px}
+.verif-q{color:var(--muted);font:10.5px var(--mono)}
+.verif-btn{padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--muted);font:700 10.5px var(--mono);cursor:pointer}
+.verif-btn:hover{border-color:var(--accent-ink);color:var(--ink)}
+.verif-btn:disabled{opacity:.6;cursor:wait}
+.verif-btn.real[aria-pressed="true"]{border-color:var(--accent-ink);background:var(--cyan);color:var(--on-accent)}
+.verif-btn.falsa[aria-pressed="true"]{border-color:var(--red);background:var(--red);color:var(--on-red)}
+.verif-msg{color:var(--muted);font:10.5px var(--mono)}
+.verif-msg.bad{color:var(--red)}
+.sources li.voto-falsa>a{text-decoration:line-through;text-decoration-color:var(--red);opacity:.7}
 .msg-meta{font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
 .message.error .message-body{color:var(--error);border-left:4px solid var(--red);padding-left:10px}
 .message.trial .message-body{color:var(--amber);border-left-color:var(--amber)}
@@ -126,6 +137,10 @@ button:disabled{opacity:.55;cursor:wait}
 .send-btn{border:2px solid var(--paper);background:var(--cyan);color:var(--on-accent);font-size:18px}
 .send-btn:hover{background:var(--paper)}
 .send-btn.busy{background:var(--red);color:var(--on-red)}
+.send-btn.busy:hover{background:var(--red);filter:brightness(1.1)}
+.thinking{align-items:center}
+.stop-inline{margin-left:auto;padding:5px 9px;border:1px solid var(--red);border-radius:6px;background:transparent;color:var(--red);font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.04em;cursor:pointer}
+.stop-inline:hover{background:var(--red);color:var(--on-red)}
 .composer-note{font-family:var(--mono)}
 .guest-bar{border:2px solid var(--paper);background:var(--amber);color:var(--on-warm);font:700 11px/1.35 var(--mono);text-transform:uppercase;box-shadow:4px 4px 0 var(--shadow)}
 .guest-bar button,.guest-bar button:hover{background:var(--bg);color:var(--paper);box-shadow:none;font-size:11px;padding:7px 9px;border-color:var(--bg)}

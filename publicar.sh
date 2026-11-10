@@ -19,5 +19,5 @@ echo "== 5/6 App web en Pages (sin la APK)"
 TMP=$(mktemp -d); cp -r dist/. "$TMP"; rm -rf "$TMP/descargas"
 npx wrangler pages deploy "$TMP" --project-name libre-ia --branch main --commit-dirty=true; rm -rf "$TMP"
 echo "== 6/6 Sitio público (Cloudflare Pages)"
-npx wrangler pages deploy landing --project-name libreia --branch main --commit-dirty=true
+(cd landing && npx wrangler pages deploy . --project-name libreia --branch main --commit-dirty=true)  # desde landing/ para incluir landing/functions (feeds)
 echo "LISTO"

@@ -52,6 +52,11 @@ export class Estadisticas {
       CREATE TABLE IF NOT EXISTS instalaciones (id TEXT PRIMARY KEY, primera TEXT NOT NULL, ultima TEXT NOT NULL, plataforma TEXT, version TEXT);
       CREATE TABLE IF NOT EXISTS activos (dia TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (dia, id));
       CREATE TABLE IF NOT EXISTS valores (clave TEXT PRIMARY KEY, valor TEXT NOT NULL);
+      -- Verificación de fuentes por los usuarios. Sin URLs ni identidades: «clave» es HMAC(votante, url)
+      -- (un voto por persona y página, que puede cambiar) y «votante» es HMAC(votante, dominio)
+      -- (para contar personas distintas por dominio). Ninguno de los dos se puede revertir.
+      CREATE TABLE IF NOT EXISTS fuentes_votos (clave TEXT PRIMARY KEY, votante TEXT NOT NULL, dominio TEXT NOT NULL, voto TEXT NOT NULL, dia TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS fuentes_votos_dominio ON fuentes_votos (dominio);
     `);
     this.vistosHoy = new Set();
     this.diaVistos = "";
@@ -61,6 +66,8 @@ export class Estadisticas {
     const ruta = new URL(request.url).pathname;
     if (ruta === "/registrar") return this.registrar(await request.json());
     if (ruta === "/resumen") return Response.json(this.resumen());
+    if (ruta === "/fuentes/votar") return Response.json(this.votarFuente(await request.json()));
+    if (ruta === "/fuentes/reputacion") return Response.json(this.reputacionFuentes());
     if (ruta === "/valor" && request.method === "GET") {
       const clave = new URL(request.url).searchParams.get("clave");
       const fila = this.sql.exec("SELECT valor FROM valores WHERE clave = ?", clave).toArray()[0];
@@ -102,6 +109,35 @@ export class Estadisticas {
       }
     }
     return Response.json({ ok: true });
+  }
+
+  /** voto: "real" | "falsa" | null (retirar el voto). */
+  votarFuente({ clave, votante, dominio, voto }) {
+    const ok = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max;
+    if (!ok(clave, 64) || !ok(votante, 64) || !ok(dominio, 253)) return { ok: false, error: "datos inválidos" };
+    if (voto === null) {
+      this.sql.exec("DELETE FROM fuentes_votos WHERE clave = ?", clave);
+      return { ok: true };
+    }
+    if (voto !== "real" && voto !== "falsa") return { ok: false, error: "voto inválido" };
+    this.sql.exec(
+      `INSERT INTO fuentes_votos (clave, votante, dominio, voto, dia) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(clave) DO UPDATE SET voto = excluded.voto, dia = excluded.dia`,
+      clave, votante, dominio, voto, hoy(),
+    );
+    return { ok: true };
+  }
+
+  /** { dominios: { "ejemplo.com": { real, falsa } }, votos } — personas distintas por dominio y veredicto. */
+  reputacionFuentes() {
+    const filas = this.sql.exec(
+      `SELECT dominio,
+              COUNT(DISTINCT CASE WHEN voto = 'real' THEN votante END) AS real,
+              COUNT(DISTINCT CASE WHEN voto = 'falsa' THEN votante END) AS falsa
+         FROM fuentes_votos GROUP BY dominio`,
+    ).toArray();
+    const votos = this.sql.exec("SELECT COUNT(*) AS n FROM fuentes_votos").toArray()[0]?.n || 0;
+    return { dominios: Object.fromEntries(filas.map((f) => [f.dominio, { real: f.real, falsa: f.falsa }])), votos };
   }
 
   resumen() {
