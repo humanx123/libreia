@@ -15,7 +15,7 @@ export { Comunidad } from "./comunidad.js";
 export { RedNodos } from "./red.js";
 import { crearTokenNodo } from "./red.js";
 
-const VERSION = "3.5.0";
+const VERSION = "3.5.1";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -277,10 +277,12 @@ async function manejarV1(request, env, path, ctx) {
         votante: (await hmacHex(env.INTERNAL_TOKEN, `fuente-dominio:${votante}|${dom}`)).slice(0, 40),
         dominio: dom,
         voto: datos.voto,
+        tipo: cuenta ? "cuenta" : "instalacion",
       }),
     })).json();
     if (!r.ok) return errorOpenAI(r.error || "No se pudo guardar la verificación", 400, "invalid_request_error");
-    return json({ ok: true, dominio: dom, voto: datos.voto }, 200, CORS_HEADERS);
+    // «cuenta»: solo los votos de cuentas deciden la búsqueda (un id de instalación lo inventa cualquiera).
+    return json({ ok: true, dominio: dom, voto: datos.voto, cuenta: !!cuenta }, 200, CORS_HEADERS);
   }
 
   if (path === "/v1/chat/completions" && request.method === "POST") {

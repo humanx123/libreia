@@ -58,6 +58,11 @@ export class Estadisticas {
       CREATE TABLE IF NOT EXISTS fuentes_votos (clave TEXT PRIMARY KEY, votante TEXT NOT NULL, dominio TEXT NOT NULL, voto TEXT NOT NULL, dia TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS fuentes_votos_dominio ON fuentes_votos (dominio);
     `);
+    // «tipo»: cuenta o instalación. Solo las cuentas (registro con captcha) deciden vetos y prioridades:
+    // un id de instalación lo inventa cualquiera.
+    if (!this.sql.exec("PRAGMA table_info(fuentes_votos)").toArray().some((c) => c.name === "tipo")) {
+      this.sql.exec("ALTER TABLE fuentes_votos ADD COLUMN tipo TEXT NOT NULL DEFAULT 'instalacion'");
+    }
     this.vistosHoy = new Set();
     this.diaVistos = "";
   }
@@ -68,6 +73,13 @@ export class Estadisticas {
     if (ruta === "/resumen") return Response.json(this.resumen());
     if (ruta === "/fuentes/votar") return Response.json(this.votarFuente(await request.json()));
     if (ruta === "/fuentes/reputacion") return Response.json(this.reputacionFuentes());
+    if (ruta === "/fuentes/restablecer") {
+      const { dominio } = await request.json();
+      if (typeof dominio !== "string" || !dominio || dominio.length > 253) return Response.json({ ok: false, error: "dominio inválido" });
+      const antes = this.sql.exec("SELECT COUNT(*) AS n FROM fuentes_votos WHERE dominio = ?", dominio).toArray()[0]?.n || 0;
+      this.sql.exec("DELETE FROM fuentes_votos WHERE dominio = ?", dominio);
+      return Response.json({ ok: true, borrados: antes });
+    }
     if (ruta === "/valor" && request.method === "GET") {
       const clave = new URL(request.url).searchParams.get("clave");
       const fila = this.sql.exec("SELECT valor FROM valores WHERE clave = ?", clave).toArray()[0];
@@ -112,7 +124,7 @@ export class Estadisticas {
   }
 
   /** voto: "real" | "falsa" | null (retirar el voto). */
-  votarFuente({ clave, votante, dominio, voto }) {
+  votarFuente({ clave, votante, dominio, voto, tipo }) {
     const ok = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max;
     if (!ok(clave, 64) || !ok(votante, 64) || !ok(dominio, 253)) return { ok: false, error: "datos inválidos" };
     if (voto === null) {
@@ -120,24 +132,30 @@ export class Estadisticas {
       return { ok: true };
     }
     if (voto !== "real" && voto !== "falsa") return { ok: false, error: "voto inválido" };
+    if (tipo !== "cuenta" && tipo !== "instalacion") return { ok: false, error: "tipo inválido" };
     this.sql.exec(
-      `INSERT INTO fuentes_votos (clave, votante, dominio, voto, dia) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO fuentes_votos (clave, votante, dominio, voto, dia, tipo) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(clave) DO UPDATE SET voto = excluded.voto, dia = excluded.dia`,
-      clave, votante, dominio, voto, hoy(),
+      clave, votante, dominio, voto, hoy(), tipo,
     );
     return { ok: true };
   }
 
-  /** { dominios: { "ejemplo.com": { real, falsa } }, votos } — personas distintas por dominio y veredicto. */
+  /**
+   * { dominios: { "ejemplo.com": { real, falsa, realTodos, falsaTodos } }, votos }: personas distintas por
+   * dominio y veredicto. real/falsa cuentan solo cuentas (deciden la búsqueda); *Todos incluyen el modo prueba.
+   */
   reputacionFuentes() {
     const filas = this.sql.exec(
       `SELECT dominio,
-              COUNT(DISTINCT CASE WHEN voto = 'real' THEN votante END) AS real,
-              COUNT(DISTINCT CASE WHEN voto = 'falsa' THEN votante END) AS falsa
+              COUNT(DISTINCT CASE WHEN voto = 'real' AND tipo = 'cuenta' THEN votante END) AS real,
+              COUNT(DISTINCT CASE WHEN voto = 'falsa' AND tipo = 'cuenta' THEN votante END) AS falsa,
+              COUNT(DISTINCT CASE WHEN voto = 'real' THEN votante END) AS realTodos,
+              COUNT(DISTINCT CASE WHEN voto = 'falsa' THEN votante END) AS falsaTodos
          FROM fuentes_votos GROUP BY dominio`,
     ).toArray();
     const votos = this.sql.exec("SELECT COUNT(*) AS n FROM fuentes_votos").toArray()[0]?.n || 0;
-    return { dominios: Object.fromEntries(filas.map((f) => [f.dominio, { real: f.real, falsa: f.falsa }])), votos };
+    return { dominios: Object.fromEntries(filas.map((f) => [f.dominio, { real: f.real, falsa: f.falsa, realTodos: f.realTodos, falsaTodos: f.falsaTodos }])), votos };
   }
 
   resumen() {

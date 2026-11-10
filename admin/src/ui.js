@@ -67,8 +67,9 @@ export const HTML = `<!doctype html>
     <p class="muted">Ordenadores de voluntarios que responden en el modo Comunidad. Solo pasan a «activo» tras responder bien una pregunta de control. Bloquear un nodo cierra todos los nodos de esa cuenta y le impide volver a conectarse. Aquí nunca se ven mensajes.</p>
     <div id="redLista" class="list"></div>
     <div class="row-head"><h2>Fuentes verificadas por los usuarios</h2><button id="recargarFuentes" class="ghost">Actualizar</button></div>
-    <p class="muted">Bajo cada respuesta, las personas marcan si una fuente es real o no. Se cuentan personas distintas por dominio. Un dominio deja de usarse en la búsqueda cuando lo marcan como falso al menos el umbral de personas (Ajustes) y lo falso dobla a lo real; los confirmados salen primero. No se guardan URLs ni quién votó.</p>
+    <p class="muted">Bajo cada respuesta, las personas marcan si una fuente es real o no. Se cuentan personas distintas por dominio. Solo deciden las <b>cuentas</b> (el registro tiene captcha; un id del modo prueba lo inventa cualquiera): un dominio deja de usarse cuando lo marcan como falso al menos el umbral de cuentas (Ajustes) y lo falso dobla a lo real; los confirmados salen primero. Los votos del modo prueba se ven aquí pero no cuentan. Los cambios tardan hasta 10 min en llegar a la búsqueda y 5 min a Transparencia. No se guardan URLs ni quién votó.</p>
     <div id="fuentesLista" class="list"></div>
+  </section>
 
   <section id="t-claves" class="tab hidden">
     <h2>Claves de proveedores</h2>
@@ -113,7 +114,7 @@ export const HTML = `<!doctype html>
       <label>Máximo de mensajes al día por cuenta (10–5000; Fusión cuenta por 4)<input id="aDiaN" type="number" min="10" max="5000"></label>
       <label class="check"><input id="aWeb" type="checkbox"> Búsqueda web en las respuestas (fuentes reales citadas)</label>
       <label>Fuentes por respuesta (1–8)<input id="aWebN" type="number" min="1" max="8"></label>
-      <label>Personas que deben marcar un dominio como falso para dejar de usarlo (2–50)<input id="aVetoN" type="number" min="2" max="50"></label>
+      <label>Cuentas que deben marcar un dominio como falso para dejar de usarlo (2–50)<input id="aVetoN" type="number" min="2" max="50"></label>
       <h3>Instrucciones de sistema por modo</h3>
       <p class="muted">Vacío = la de fábrica (se muestra en gris). Definen la personalidad de cada modo.</p>
       <div id="aSistema"></div>
@@ -386,11 +387,18 @@ async function cargarFuentes() {
       + (filas.map(([d, r]) => {
         const vetado = r.falsa >= umbral && r.falsa > 2 * r.real;
         const estado = vetado ? '<span class="badge bad">no se usa</span>' : r.real > r.falsa ? '<span class="badge ok">confirmada</span>' : '<span class="badge warn">en revisión</span>';
-        return '<div class="item"><div class="item-head"><b>' + esc(d) + "</b>" + estado + '<span class="muted">✓ real ' + num(r.real) + " · ✗ falsa " + num(r.falsa) + "</span></div></div>";
+        return '<div class="item"><div class="item-head"><b>' + esc(d) + "</b>" + estado + '<span class="muted">cuentas: ✓ ' + num(r.real) + " · ✗ " + num(r.falsa) + " — con modo prueba: ✓ " + num(r.realTodos) + " · ✗ " + num(r.falsaTodos) + '</span><button class="ghost" data-restablecer="' + esc(d) + '">Restablecer</button></div></div>';
       }).join("") || '<p class="muted">Todavía nadie verificó fuentes.</p>');
   } catch (e) { aviso("No se pudo leer la verificación de fuentes: " + e.message, "bad"); }
 }
 $("recargarFuentes").addEventListener("click", cargarFuentes);
+$("fuentesLista").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-restablecer]");
+  if (!b) return;
+  if (!confirm("¿Borrar todos los votos de " + b.dataset.restablecer + "? Vuelve a usarse en la búsqueda (en ≤10 min).")) return;
+  try { const r = await api("/api/fuentes/restablecer", { method: "POST", body: JSON.stringify({ dominio: b.dataset.restablecer }) }); aviso("✓ " + b.dataset.restablecer + " restablecida (" + r.borrados + " votos borrados)"); cargarFuentes(); }
+  catch (err) { aviso("No se pudo restablecer: " + err.message, "bad"); }
+});
 $("redLista").addEventListener("click", async (e) => {
   const des = e.target.closest("[data-desbloquear]");
   if (des) {

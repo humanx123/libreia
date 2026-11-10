@@ -545,6 +545,14 @@ async function api(request, env, ruta, url) {
     if (!env.ESTADISTICAS) return json({ dominios: {}, votos: 0, aviso: "Falta el binding ESTADISTICAS" });
     return json(await (await estadisticas(env).fetch("https://e/fuentes/reputacion")).json());
   }
+  if (ruta === "/api/fuentes/restablecer" && metodo === "POST") {
+    if (!env.ESTADISTICAS) return json({ error: "Falta el binding ESTADISTICAS" }, 503);
+    const { dominio } = await request.json().catch(() => ({}));
+    if (typeof dominio !== "string" || !/^[a-z0-9.-]{1,253}$/i.test(dominio)) return json({ error: "Dominio inválido" }, 400);
+    const r = await (await estadisticas(env).fetch("https://e/fuentes/restablecer", { method: "POST", body: JSON.stringify({ dominio }) })).json();
+    if (r.ok) await registrar(env, request, usuario, `Fuente ${dominio} restablecida (${r.borrados} votos borrados)`);
+    return json(r, r.ok ? 200 : 400);
+  }
 
   // --- red de nodos de voluntarios (modo Comunidad)
   if (ruta === "/api/red" && metodo === "GET") {

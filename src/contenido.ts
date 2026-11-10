@@ -11,7 +11,7 @@ export const PRIVACY_POINTS = `
   <li><b>Tu correo y tu contraseña no salen de tu dispositivo.</b> Se transforman aquí en huellas (la contraseña, con 600 000 rondas de PBKDF2). El servidor las vuelve a cifrar con una clave secreta y solo guarda ese resultado.</li>
   <li><b>Tus chats viven solo en este dispositivo.</b> No se guardan en ningún servidor. Puedes exportarlos o borrarlos en Configuración.</li>
   <li><b>No guardamos</b> tu IP, tu nombre ni lo que escribes. Solo contamos números agregados (cuántos usuarios y mensajes) y puedes desactivarlo.</li>
-  <li><b>Cuando marcas si una fuente es real,</b> el servidor guarda solo el dominio (por ejemplo, «wikipedia.org») y tu veredicto, con huellas irreversibles para contar personas distintas. Nunca guarda la página junto a quién votó. Con esos votos, los dominios que la comunidad marca como falsos dejan de usarse en las búsquedas.</li>
+  <li><b>Cuando marcas si una fuente es real,</b> el servidor guarda solo el dominio (por ejemplo, «wikipedia.org») y tu veredicto, con huellas irreversibles para contar personas distintas. Nunca guarda la página junto a quién votó. Con los votos de las cuentas, los dominios que la comunidad marca como falsos dejan de usarse en las búsquedas.</li>
   <li><b>El correo es solo tu nombre de usuario:</b> no lo verificamos ni te escribiremos nunca.</li>
   <li><b>Quién lee cada mensaje para responderlo:</b> el proveedor del modelo (o el de tu propia clave, si la usas). En el modo <b>Comunidad</b> lo lee el ordenador de un voluntario, que podría verlo: no lo uses para datos personales.</li>
 </ul>`;

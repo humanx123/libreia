@@ -922,8 +922,11 @@ async function verifySource(btn: HTMLButtonElement) {
   msg.textContent = "Enviando…";
   li.querySelectorAll<HTMLButtonElement>("[data-verif]").forEach((b) => (b.disabled = true));
   try {
-    await api("/fuentes/verificar", { body: { url: f.url, voto: voto ?? null }, timeoutMs: 15000 });
-    msg.textContent = voto === "real" ? "Gracias: confirmada" : voto === "falsa" ? "Gracias: la búsqueda la tendrá en cuenta" : "Marca quitada";
+    const r = await api<{ cuenta?: boolean }>("/fuentes/verificar", { body: { url: f.url, voto: voto ?? null }, timeoutMs: 15000 });
+    // Only account votes change the search (a trial id can be made up): say so instead of promising it.
+    msg.textContent = !voto ? "Marca quitada"
+      : !r?.cuenta ? "Gracias. Con una cuenta gratis tu voto cuenta para la búsqueda"
+      : voto === "real" ? "Gracias: confirmada" : "Gracias: la búsqueda la tendrá en cuenta";
   } catch (e) {
     // The server didn't take it: undo the mark so what is shown is what counts.
     store(before);
