@@ -6,7 +6,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, ApiError, sendEvent, session, prefs, deriveCredentials, normalizeEmail, IS_NATIVE, GUEST_NS } from "./api";
 import { OWN_PROVIDERS, loadOwnKey, saveOwnKey, updateOwnKey, clearOwnKey, ownKeyForRequest, keyHint } from "./propia";
-import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING, NODE_SCRIPT_URL } from "./contenido";
+import { ABOUT_HTML, PRIVACY_POINTS, RECOVERY_WARNING, NODE_SCRIPT_URL, NODE_EXE_URL, NODE_RELEASES_URL } from "./contenido";
 
 type Role = "user" | "assistant";
 type Verdict = "real" | "falsa";
@@ -473,16 +473,24 @@ document.querySelector<HTMLDivElement>("#app")!.innerHTML = `
     <p class="muted">¿Tienes un modelo local (Ollama, LM Studio, llama.cpp o KoboldCpp)? Conéctalo a la red y responderá a quien use el modo <b>Comunidad</b>. El conector abre una conexión de salida: no hay que abrir puertos.</p>
     <details class="node-guide">
       <summary>Cómo conectar mi nodo</summary>
+      <a class="node-download" href="${NODE_EXE_URL}" target="_blank" rel="noopener noreferrer" data-external>⬇ Descargar LibreIA Nodo para Windows <small>.exe · 7,7 MB · sin programar</small></a>
       <ol class="muted small">
-        <li>Instala <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" data-external>Node.js 22 o superior</a> y un servidor local con un modelo <i>instruct</i>. Por ejemplo, <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" data-external>Ollama</a> con <code>ollama pull qwen3:4b</code>.</li>
-        <li>Descarga el conector: <a href="${NODE_SCRIPT_URL}" target="_blank" rel="noopener noreferrer" data-external>libreia-nodo.mjs</a> (código abierto, léelo si quieres).</li>
-        <li>Genera tu token y ejecuta el comando que aparece abajo. Antes de recibir preguntas, tu nodo responderá una de control.</li>
+        <li><b>Abre el programa.</b> Si Windows avisa «Windows protegió tu PC», pulsa «Más información» → «Ejecutar de todas formas»: es software libre sin firma de pago. Puedes <a href="${NODE_RELEASES_URL}" target="_blank" rel="noopener noreferrer" data-external>comprobar su huella SHA-256 y leer su código</a>.</li>
+        <li><b>Genera tu token aquí abajo</b> y pégalo cuando el programa lo pida.</li>
+        <li><b>Elige tu proveedor local y el modelo.</b> El programa detecta Ollama, LM Studio, llama.cpp, KoboldCpp, Jan, GPT4All y vLLM, y te deja añadir cualquier otro compatible con OpenAI. Si no tienes ninguno, instala Ollama y descarga un modelo recomendado (o el que quieras) desde el propio programa.</li>
+        <li>Prueba el modelo y se conecta. Puede quedar instalado e iniciarse solo con Windows.</li>
       </ol>
+      <p class="muted small">¿Linux o Mac? En la <a href="${NODE_RELEASES_URL}" target="_blank" rel="noopener noreferrer" data-external>misma página</a> está el programa para Linux y macOS (sin firmar: en Mac, clic derecho → Abrir). También puedes usar el script <a href="${NODE_SCRIPT_URL}" target="_blank" rel="noopener noreferrer" data-external>libreia-nodo.mjs</a> con Node.js 22 o superior.</p>
       <p class="muted small">⚠️ Tu nodo verá las preguntas que responde. El conector no las guarda ni las muestra; trátalas con respeto. Si un nodo responde mal o abusa, la moderación puede bloquearlo.</p>
       <button type="button" id="nodeTokenBtn">Generar mi token de nodo</button>
       <div id="nodeTokenBox" class="hidden">
-        <pre class="node-cmd"><code id="nodeCmd"></code></pre>
-        <div class="btn-row"><button type="button" id="nodeCopy">Copiar comando</button></div>
+        <p class="muted small">Tu token (pégalo en LibreIA Nodo):</p>
+        <pre class="node-cmd"><code id="nodeToken"></code></pre>
+        <div class="btn-row"><button type="button" id="nodeCopy">Copiar token</button></div>
+        <details class="node-adv"><summary>Comando para la terminal (Linux, Mac o el script)</summary>
+          <pre class="node-cmd"><code id="nodeCmd"></code></pre>
+          <div class="btn-row"><button type="button" id="nodeCopyCmd">Copiar comando</button></div>
+        </details>
         <p class="muted small">El token deja de valer si cierras sesión en todos tus dispositivos o cambias la contraseña. Máximo 3 nodos por cuenta.</p>
       </div>
       <p id="nodeStatus" class="status-text" role="status"></p>
@@ -1453,19 +1461,21 @@ $("nodeTokenBtn").addEventListener("click", async () => {
   try {
     const r = await api<{ token: string }>("/red/token", { body: {}, timeoutMs: 15000 });
     if (!/^n1\.[0-9a-f.]+$/.test(r.token || "")) throw new Error("Respuesta inesperada del servidor");
-    $("nodeCmd").textContent = `node libreia-nodo.mjs --token ${r.token} --nombre TuAlias`;
+    $("nodeToken").textContent = r.token;
+    $("nodeCmd").textContent = `./LibreIA-Nodo-linux-x64 --token ${r.token} --nombre TuAlias\n# o con el script: node libreia-nodo.mjs --token ${r.token} --nombre TuAlias`;
     $("nodeTokenBox").classList.remove("hidden");
-    st.textContent = "✓ Token listo. Cambia «TuAlias» por el nombre público de tu nodo (o quítalo). Si usas LM Studio añade --api http://127.0.0.1:1234/v1.";
+    st.textContent = "✓ Token listo. Cópialo y pégalo en LibreIA Nodo. Guárdalo como una contraseña: quien lo tenga puede conectar un nodo a tu nombre.";
   } catch (ex) {
     st.textContent = (ex as Error).message;
   }
 });
-$("nodeCopy").addEventListener("click", () => {
-  copyText($("nodeCmd").textContent || "").then(
-    () => ($("nodeStatus").textContent = "✓ Comando copiado. Guárdalo como una contraseña: quien lo tenga puede conectar un nodo a tu nombre."),
+const copyNode = (id: string, what: string) =>
+  copyText($(id).textContent || "").then(
+    () => ($("nodeStatus").textContent = `✓ ${what} copiado. Guárdalo como una contraseña: quien lo tenga puede conectar un nodo a tu nombre.`),
     () => ($("nodeStatus").textContent = "No se pudo copiar: selecciónalo a mano."),
   );
-});
+$("nodeCopy").addEventListener("click", () => copyNode("nodeToken", "Token"));
+$("nodeCopyCmd").addEventListener("click", () => copyNode("nodeCmd", "Comando"));
 
 // ---------------------------------------------------------------- own provider key
 const ownProv = $<HTMLSelectElement>("ownProv");

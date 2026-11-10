@@ -32,13 +32,14 @@ LibreIA es un chat de IA gratuito que une varios modelos abiertos y gratuitos de
   2. Si no hay ninguno libre, [AI Horde](https://aihorde.net), con los mejores modelos instruct en línea en ese momento (`nube/src/horda.js`).
   - **Aviso:** la app avisa de que el voluntario **puede ver el mensaje** y pide confirmación la primera vez.
 - **Presta tu ordenador (nodos LibreIA).**
-  - **Instalación:** con Ollama, LM Studio, llama.cpp o KoboldCpp y el conector [`public/nodo/libreia-nodo.mjs`](public/nodo/libreia-nodo.mjs) (Node 22, sin dependencias), un modelo local responde a la comunidad.
+  - **Instalación:** el programa [LibreIA Nodo](nodo/) (Windows, Linux y macOS; [descargas](https://github.com/humanx123/libreia/releases/latest)) guía paso a paso: detecta el proveedor local (Ollama, LM Studio, llama.cpp, KoboldCpp, Jan, GPT4All, vLLM u otro compatible con OpenAI), descarga modelos con Ollama, prueba el modelo y conecta. Sin programar. Alternativa: el script [`public/nodo/libreia-nodo.mjs`](public/nodo/libreia-nodo.mjs) (Node 22, sin dependencias).
   - **Conexión:** el conector abre un WebSocket de salida hacia el Durable Object `RedNodos` (`nube/src/red.js`), así que no hay que abrir puertos. Los «ping» se contestan sin despertar al objeto (hibernación, plan gratuito).
   - **Token:** se genera en la app con una cuenta. Caduca si la cuenta cierra todas sus sesiones. Se admiten como máximo 3 nodos por cuenta.
   - **Confianza:** antes de recibir tráfico, el nodo responde una pregunta de control con respuesta conocida. El panel lista los nodos y bloquea cuentas.
   - **Privacidad:** el conector no guarda ni muestra las preguntas, y el Durable Object solo guarda contadores por nodo.
 
 ```
+LibreIA-Nodo --token TU_TOKEN --nombre TuAlias                       # programa, sin asistente
 node libreia-nodo.mjs --token TU_TOKEN --nombre TuAlias            # Ollama (por defecto)
 node libreia-nodo.mjs --token TU_TOKEN --api http://127.0.0.1:1234/v1   # LM Studio
 ```

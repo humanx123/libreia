@@ -5,6 +5,10 @@ export const REPO_URL = "https://github.com/humanx123/libreia";
 export const CONTACT_EMAIL = "libreia@proton.me";
 // Volunteer node connector (served with the web app and the API).
 export const NODE_SCRIPT_URL = "https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs";
+// LibreIA Nodo (programa con asistente, código en nodo/ del repositorio). «latest»: cada versión nueva
+// del programa se publica como release de GitHub con estos mismos nombres de archivo.
+export const NODE_EXE_URL = `${REPO_URL}/releases/latest/download/LibreIA-Nodo.exe`;
+export const NODE_RELEASES_URL = `${REPO_URL}/releases/latest`;
 
 export const PRIVACY_POINTS = `
 <ul class="privacy-list">

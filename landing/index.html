@@ -209,8 +209,8 @@
         <article class="dl-card dl-apk">
           <p class="tag">Android · APK</p>
           <h3>App para Android</h3>
-          <p>Versión <b>0.12.5</b> · ~6 MB · Android 6 o superior.</p>
-          <p class="fine">Novedades: verifica también las referencias que escribe la IA, las respuestas largas ya no se cortan (botón «Continuar»), verifica las fuentes (✓/✗), botón Stop, tu propia clave de IA, modo Comunidad y red de nodos de voluntarios. Y alguna sorpresa en Configuración.</p>
+          <p>Versión <b>0.12.6</b> · ~6 MB · Android 6 o superior.</p>
+          <p class="fine">Novedades: LibreIA Nodo para Windows (presta tu ordenador sin programar), verifica también las referencias que escribe la IA, las respuestas largas ya no se cortan (botón «Continuar»), verifica las fuentes (✓/✗), botón Stop, tu propia clave de IA, modo Comunidad y red de nodos de voluntarios. Y alguna sorpresa en Configuración.</p>
           <a class="btn btn-cyan big" href="https://libreia-api.libreia-chat-mobile.workers.dev/descargas/LibreIA-Chat.apk" download>Descargar APK ↓</a>
           <ol class="steps">
             <li>Descarga el archivo.</li>
@@ -245,18 +245,18 @@
       <div class="modes tres">
         <article class="mode"><h3>Tu clave</h3><p>¿Tienes una clave gratis de Groq, Google AI Studio u OpenRouter? Ponla en Configuración: tus mensajes van con tu clave y el cupo común queda para quien no tiene. Se guarda cifrada en tu dispositivo y nunca se comparte.</p></article>
         <article class="mode"><h3>Comunidad</h3><p>Elige el modo Comunidad y responde un modelo abierto en el ordenador de un voluntario: de la red de nodos LibreIA o de <a href="https://aihorde.net" rel="noopener">AI Horde</a>. Es más lento y el voluntario puede ver el mensaje.</p></article>
-        <article class="mode"><h3>Tu ordenador</h3><p>Con Ollama, LM Studio, llama.cpp o KoboldCpp y nuestro <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">conector</a> (un archivo de código abierto) tu modelo responde a la comunidad. Es una conexión de salida: no abres puertos. Genera el token en la app, en Configuración.</p></article>
+        <article class="mode"><h3>Tu ordenador</h3><p>Descarga <a href="https://github.com/humanx123/libreia/releases/latest/download/LibreIA-Nodo.exe" rel="noopener">LibreIA Nodo para Windows</a>: un programa con asistente que detecta Ollama, LM Studio, llama.cpp, KoboldCpp, Jan, GPT4All o vLLM (o el que añadas), descarga un modelo si hace falta y conecta tu ordenador. Sin programar y sin abrir puertos.</p></article>
       </div>
       <div class="nodo-pasos">
         <h3>Pon tu nodo en tres pasos</h3>
         <ol class="steps">
-          <li>Instala <a href="https://ollama.com" rel="noopener">Ollama</a> (o LM Studio, llama.cpp, KoboldCpp) y un modelo instruct: <code>ollama pull qwen3:4b</code>. Necesitas además <a href="https://nodejs.org" rel="noopener">Node.js 22</a>.</li>
-          <li>Descarga el <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">conector</a>, un archivo de código abierto: no guarda ni muestra las preguntas.</li>
-          <li>En la app, ve a Configuración → «Presta tu ordenador», genera tu token y ejecuta el comando. Antes de recibir preguntas, tu nodo responde una de control.</li>
+          <li>Descarga <a href="https://github.com/humanx123/libreia/releases/latest/download/LibreIA-Nodo.exe" rel="noopener"><b>LibreIA Nodo para Windows</b></a> (.exe, 7,7 MB, software libre) y ábrelo. Si Windows avisa, pulsa «Más información» → «Ejecutar de todas formas». Para Linux y macOS, en la <a href="https://github.com/humanx123/libreia/releases/latest" rel="noopener">página de descargas</a>.</li>
+          <li>En la app, ve a Configuración → «Presta tu ordenador», genera tu token y pégalo en el programa.</li>
+          <li>Elige tu proveedor y tu modelo, o instala Ollama y descarga uno desde el propio programa. Responde una pregunta de control y ya está: no guarda ni muestra las preguntas.</li>
         </ol>
         <p class="nodo-vivo">Nodos de voluntarios en línea ahora: <b data-k="nodosComputo">—</b></p>
       </div>
-      <pre class="cmd"><code>node libreia-nodo.mjs --token TU_TOKEN --nombre TuAlias</code></pre>
+      <p class="fine">¿Prefieres la terminal? <code>LibreIA-Nodo --token TU_TOKEN</code> o el script <a href="https://libreia-api.libreia-chat-mobile.workers.dev/nodo/libreia-nodo.mjs" rel="noopener">libreia-nodo.mjs</a> con Node.js 22.</p>
     </div>
   </section>
 
