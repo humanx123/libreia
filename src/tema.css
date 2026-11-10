@@ -141,6 +141,12 @@ button:disabled{opacity:.55;cursor:wait}
 .thinking{align-items:center}
 .stop-inline{margin-left:auto;padding:5px 9px;border:1px solid var(--red);border-radius:6px;background:transparent;color:var(--red);font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.04em;cursor:pointer}
 .stop-inline:hover{background:var(--red);color:var(--on-red)}
+.continue-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:12px 0 4px;padding:10px 12px;border:1.5px dashed var(--accent-ink);border-radius:8px}
+.continue-note{flex:1 1 180px;color:var(--muted);font:11px var(--mono)}
+.continue-note b{color:var(--red);font-weight:700}
+.continue-btn{padding:8px 14px;border:2px solid var(--accent-ink);border-radius:8px;background:var(--cyan);color:var(--on-accent);font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.04em;cursor:pointer}
+.continue-btn:hover{filter:brightness(1.08)}
+.continue-btn:disabled{opacity:.55;cursor:wait}
 .composer-note{font-family:var(--mono)}
 .guest-bar{border:2px solid var(--paper);background:var(--amber);color:var(--on-warm);font:700 11px/1.35 var(--mono);text-transform:uppercase;box-shadow:4px 4px 0 var(--shadow)}
 .guest-bar button,.guest-bar button:hover{background:var(--bg);color:var(--paper);box-shadow:none;font-size:11px;padding:7px 9px;border-color:var(--bg)}

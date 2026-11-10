@@ -12,7 +12,9 @@ type Role = "user" | "assistant";
 type Verdict = "real" | "falsa";
 type Source = { n: number; titulo: string; url: string; dominio: string; voto?: Verdict };
 type Meta = { modo: string; proveedor?: string; modelo?: string };
-type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta };
+type Message = { role: Role; content: string; error?: boolean; cta?: boolean; fuentes?: Source[]; meta?: Meta; cortada?: boolean };
+/** Old notice that used to be glued to the text of a reply cut by length (chats saved before 0.12.4). */
+const OLD_CUT_NOTICE = "\n\n⚠️ *(respuesta cortada por longitud)*";
 type ChatSession = { id: string; title: string; updatedAt: number; messages: Message[] };
 type View = "chat" | "about" | "community";
 
@@ -102,7 +104,8 @@ function cleanChats(v: unknown): ChatSession[] {
         .filter((m: any) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
         .map((m: any) => ({
           role: m.role,
-          content: m.content.slice(0, 200000),
+          content: (m.content.endsWith(OLD_CUT_NOTICE) ? m.content.slice(0, -OLD_CUT_NOTICE.length) : m.content).slice(0, 200000),
+          ...(m.role === "assistant" && !m.error && (m.cortada === true || m.content.endsWith(OLD_CUT_NOTICE)) ? { cortada: true } : {}),
           ...(m.error ? { error: true } : {}),
           ...(m.cta ? { cta: true } : {}),
           ...(cleanSources(m.fuentes) ? { fuentes: cleanSources(m.fuentes) } : {}),
@@ -796,11 +799,12 @@ function renderMessages() {
     messages
       .map((m, i) => {
         let body: string;
+        const more = m.cortada && m.role === "assistant" && !m.error ? continueRow(m) : "";
         try {
           body =
             m.role === "user" || m.error
               ? esc(m.content).replace(/\n/g, "<br>")
-              : renderMarkdown(m.content, m.fuentes) + renderSources(m.fuentes);
+              : renderMarkdown(m.content, m.fuentes) + more + renderSources(m.fuentes);
         } catch {
           body = esc(m.content).replace(/\n/g, "<br>"); // a broken message never breaks the whole chat
         }
@@ -867,6 +871,11 @@ messagesEl.addEventListener("click", (e) => {
   const t = e.target as HTMLElement;
   if (t.closest("[data-stop]")) {
     stopReply?.();
+    return;
+  }
+  const more = t.closest<HTMLButtonElement>("[data-continue]");
+  if (more) {
+    void continueReply(Number(more.closest<HTMLElement>(".message")?.dataset.i));
     return;
   }
   const verif = t.closest<HTMLButtonElement>("[data-verif]");
@@ -965,28 +974,15 @@ async function sendMessage(prompt: string) {
     saveChats();
     renderMessages();
     renderChatList();
-    const target = chat.messages;
-    const propia = await ownKeyForRequest();
-    const r = await api("/chat/completions", {
-      body: {
-        model: usedModel,
-        messages: target.filter((m) => !m.error).map(({ role, content }) => ({ role, content })),
-        stream: false,
-        max_tokens: 2000,
-        web: prefs.web,
-        ...(propia && usedModel !== "fusion" && usedModel !== "comunidad" ? { propia } : {}),
-      },
-      timeoutMs: 100000,
-      signal: stop.signal,
-    });
+    const r = await requestReply(chat.messages, usedModel, prefs.web, stop.signal);
     const content = r?.choices?.[0]?.message?.content;
     if (content) {
-      const cut = r.choices[0].finish_reason === "length";
       reply({
         role: "assistant",
-        content: cut ? `${content}\n\n⚠️ *(respuesta cortada por longitud)*` : content,
+        content,
         fuentes: cleanSources(r?.libreia?.fuentes),
         meta: cleanMeta({ modo: usedModel, proveedor: r?.libreia?.proveedor, modelo: r?.libreia?.modelo }),
+        ...(r.choices[0].finish_reason === "length" ? { cortada: true } : {}),
       });
     } else {
       reply({ role: "assistant", content: "❌ Respuesta inesperada del servidor (sin texto).", error: true });
@@ -1015,6 +1011,94 @@ async function sendMessage(prompt: string) {
     }
   }
 }
+/** One reply from the server for a conversation (errors are not sent back as context). */
+async function requestReply(history: Message[], usedModel: string, web: boolean, signal: AbortSignal) {
+  const propia = await ownKeyForRequest();
+  return api("/chat/completions", {
+    body: {
+      model: usedModel,
+      messages: history.filter((m) => !m.error).map(({ role, content }) => ({ role, content })),
+      stream: false,
+      max_tokens: 2000,
+      web,
+      ...(propia && usedModel !== "fusion" && usedModel !== "comunidad" ? { propia } : {}),
+    },
+    timeoutMs: 100000,
+    signal,
+  });
+}
+
+// ---------------------------------------------------------------- long replies
+// A reply that reaches the length limit is kept whole and gets a "Continue" button: the next part is
+// asked for with the conversation up to that reply and glued to it, as many times as needed.
+const CONTINUE_PROMPT =
+  "Tu respuesta anterior se cortó por longitud. Continúala exactamente donde se quedó: empieza por las palabras que seguían, " +
+  "sin repetir nada, sin saludo, sin resumen y sin comentar que continúas. Si se cortó dentro de un bloque de código, sigue el código sin abrir un bloque nuevo.";
+const continueErrors = new WeakMap<Message, string>();
+
+function continueRow(m: Message): string {
+  const err = continueErrors.get(m);
+  const busy = sending ? " disabled" : "";
+  return `<div class="continue-row"><span class="continue-note">${err ? `<b>${esc(err)}</b>` : "La respuesta es larga y se pausó aquí."}</span>` +
+    `<button type="button" class="continue-btn" data-continue${busy}>↓ Continuar la respuesta</button></div>`;
+}
+
+/** Joins the next part to what was already written, dropping a repeated start or a re-opened code block. */
+function joinContinuation(before: string, next: string): string {
+  let rest = next;
+  const insideCode = ((before.match(/^\s*```/gm) || []).length % 2) === 1;
+  if (insideCode) rest = rest.replace(/^\s*```[\w+-]*[ \t]*\n/, "");
+  const head = rest.trimStart();
+  for (let k = Math.min(300, head.length, before.length); k >= 20; k--) {
+    if (before.endsWith(head.slice(0, k))) {
+      rest = head.slice(k);
+      break;
+    }
+  }
+  // A cut in the middle of a word continues it; otherwise keep the model's own spacing.
+  return before + rest;
+}
+
+async function continueReply(i: number) {
+  const m = messages[i];
+  if (sending || !m?.cortada || m.role !== "assistant") return;
+  const chat = chats.find((c) => c.messages === messages);
+  if (!chat) return;
+  sending = true;
+  const stop = new AbortController();
+  stopReply = () => stop.abort();
+  setSendButton(true);
+  // Fusion mixes several answers: a single model continues the text more faithfully.
+  const usedModel = m.meta?.modo === "fusion" || !m.meta?.modo ? "neutral" : m.meta.modo;
+  pendingModel = usedModel;
+  pendingChatId = chat.id;
+  continueErrors.delete(m);
+  renderMessages();
+  try {
+    const history: Message[] = [...messages.slice(0, i + 1), { role: "user", content: CONTINUE_PROMPT }];
+    const r = await requestReply(history, usedModel, false, stop.signal);
+    const content = r?.choices?.[0]?.message?.content;
+    if (!content) throw new ApiError("Respuesta inesperada del servidor (sin texto).", 0);
+    m.content = joinContinuation(m.content, content);
+    if (r.choices[0].finish_reason !== "length") delete m.cortada;
+    chat.updatedAt = Date.now();
+    saveChats();
+  } catch (e) {
+    const err = e as ApiError;
+    // Stopped: the reply stays as it was, with the button to try again.
+    if (err.code !== "cancelada") continueErrors.set(m, `No se pudo continuar: ${err.message}`);
+  } finally {
+    sending = false;
+    stopReply = null;
+    pendingChatId = null;
+    setSendButton(false);
+    if (session.active) {
+      renderMessages();
+      renderChatList();
+    }
+  }
+}
+
 /** While a reply is on its way the send button becomes Stop. */
 function setSendButton(busy: boolean) {
   const b = $<HTMLButtonElement>("send");
